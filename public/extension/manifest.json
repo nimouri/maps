@@ -25,7 +25,7 @@
         "https://www.google.com/maps/*",
         "https://www.google.de/maps/*"
       ],
-      "js": ["content-maps.js"],
+      "js": ["parsing.js", "content-maps.js"],
       "run_at": "document_idle"
     }
   ]

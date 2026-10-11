@@ -1,6 +1,18 @@
 import dns from 'dns';
 import { URL } from 'url';
 
+export type DnsLookupFn = (hostname: string, options: { all: true }) => Promise<dns.LookupAddress[]>;
+
+let currentDnsLookup: DnsLookupFn = (hostname, options) => dns.promises.lookup(hostname, options) as Promise<dns.LookupAddress[]>;
+
+export function setDnsLookupForTests(fn: DnsLookupFn | null): void {
+  if (fn === null) {
+    currentDnsLookup = (hostname, options) => dns.promises.lookup(hostname, options) as Promise<dns.LookupAddress[]>;
+  } else {
+    currentDnsLookup = fn;
+  }
+}
+
 /**
  * Checks if an IP address is a private, loopback, link-local, or reserved address.
  */
@@ -62,7 +74,7 @@ export async function validateSafeUrl(targetUrl: string): Promise<{ safe: boolea
     }
 
     // DNS lookup verification
-    const lookupResult = await dns.promises.lookup(hostname, { all: true });
+    const lookupResult = await currentDnsLookup(hostname, { all: true });
     for (const entry of lookupResult) {
       if (isPrivateIp(entry.address)) {
         return { safe: false, error: `Host resolves to private IP: ${entry.address}` };

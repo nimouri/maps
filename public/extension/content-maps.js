@@ -29,96 +29,13 @@ const SELECTORS = {
     } catch (_) {}
   }
 
-  // Parse accurate coordinates from URL
-  function parseCoordinates(url) {
-    if (!url || typeof url !== 'string') {
-      return { lat: undefined, lng: undefined };
-    }
-
-    // Primary: /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
-    const dataMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-    if (dataMatch) {
-      const lat = parseFloat(dataMatch[1]);
-      const lng = parseFloat(dataMatch[2]);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        return { lat, lng };
-      }
-    }
-
-    // Secondary fallback: @lat,lng
-    const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (atMatch) {
-      const lat = parseFloat(atMatch[1]);
-      const lng = parseFloat(atMatch[2]);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        return { lat, lng };
-      }
-    }
-
-    console.warn('[MapCareer] Could not parse coordinates from Maps URL:', url);
-    return { lat: undefined, lng: undefined };
-  }
-
-  // Extract real place ID from place link (!1s0x...:0x...)
-  function parsePlaceId(url) {
-    if (!url || typeof url !== 'string') return '';
-    const match = url.match(/!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/);
-    if (match) {
-      return match[1];
-    }
-    return url;
-  }
-
-  // Split text into tokens by newlines and '·'
-  function tokenizeText(text) {
-    if (!text || typeof text !== 'string') return [];
-    return text
-      .split(/[\n\r·]+/)
-      .map(t => t.trim())
-      .filter(Boolean);
-  }
-
-  // Check if token qualifies as a phone number
-  function isPhoneToken(token) {
-    if (!token) return false;
-    // Accept only a token made ONLY of digits, spaces, + ( ) / -
-    if (!/^[0-9\s+()/-]+$/.test(token)) {
-      return false;
-    }
-    // With at least 8 digits
-    const digitsOnly = token.replace(/\D/g, '');
-    return digitsOnly.length >= 8;
-  }
-
-  // Check if token qualifies as an address
-  function isAddressToken(token) {
-    if (!token) return false;
-    // Accept only a token matching /^[^\d]{3,}\s\d+\s?\w?(,|$)/
-    if (!/^[^\d]{3,}\s\d+\s?\w?(,|$)/.test(token)) {
-      return false;
-    }
-    // Must not be a phone
-    if (isPhoneToken(token)) {
-      return false;
-    }
-    // Must not be opening hours, rating, or google text
-    const lower = token.toLowerCase();
-    if (
-      lower.includes('geöffnet') ||
-      lower.includes('geschlossen') ||
-      lower.includes('open') ||
-      lower.includes('closed') ||
-      lower.includes('uhr') ||
-      lower.includes('hours') ||
-      lower.includes('sterne') ||
-      lower.includes('star') ||
-      lower.includes('google maps') ||
-      /^\d([.,]\d)?$/.test(token)
-    ) {
-      return false;
-    }
-    return true;
-  }
+  // Parsing functions provided by parsing.js (loaded prior to this script)
+  const parsing = (typeof globalThis !== 'undefined' && globalThis.MapCareerParsing) || {};
+  const parseCoordinates = parsing.parseCoordinates || function() { return { lat: undefined, lng: undefined }; };
+  const parsePlaceId = parsing.parsePlaceId || function(url) { return url || ''; };
+  const tokenizeText = parsing.tokenizeText || function() { return []; };
+  const isPhoneToken = parsing.isPhoneToken || function() { return false; };
+  const isAddressToken = parsing.isAddressToken || function() { return false; };
 
   // Check if end-of-list marker is visible
   function isEndOfList(feed) {

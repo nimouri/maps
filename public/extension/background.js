@@ -58,6 +58,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const senderTabId = sender.tab?.id;
     if (senderTabId && pendingJobs.has(senderTabId)) {
       const job = pendingJobs.get(senderTabId);
+      job.hasReceivedProgress = true;
+      if (typeof request.currentCount === 'number') {
+        job.lastProgressCount = request.currentCount;
+      }
       if (!job.isCompleted) {
         if (job.timeoutHandle) clearTimeout(job.timeoutHandle);
         job.timeoutHandle = setTimeout(() => {
@@ -66,7 +70,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           cleanupJob(job);
           job.sendResponse({
             success: false,
-            error: 'Consent page, captcha or blocked by Google'
+            error: `Timed out while loading results (got ${job.lastProgressCount} so far)`,
+            companies: []
           });
         }, job.baseTimeoutMs);
       }
@@ -114,6 +119,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           windowId,
           baseTimeoutMs,
           isCompleted: false,
+          hasReceivedProgress: false,
+          lastProgressCount: 0,
           sendResponse,
           timeoutHandle: null
         };
@@ -124,10 +131,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           job.isCompleted = true;
           chrome.tabs.onUpdated.removeListener(onUpdated);
           cleanupJob(job);
-          job.sendResponse({
-            success: false,
-            error: 'Consent page, captcha or blocked by Google'
-          });
+          if (job.hasReceivedProgress) {
+            job.sendResponse({
+              success: false,
+              error: `Timed out while loading results (got ${job.lastProgressCount} so far)`,
+              companies: []
+            });
+          } else {
+            job.sendResponse({
+              success: false,
+              error: 'Google Maps page did not load (consent screen, captcha or blocked)'
+            });
+          }
         }, baseTimeoutMs);
 
         pendingJobs.set(tabId, job);
@@ -146,10 +161,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 cleanupJob(job);
 
                 if (chrome.runtime.lastError || !response) {
-                  job.sendResponse({
-                    success: false,
-                    error: 'Consent page, captcha or blocked by Google'
-                  });
+                  if (job.hasReceivedProgress) {
+                    job.sendResponse({
+                      success: false,
+                      error: `Timed out while loading results (got ${job.lastProgressCount} so far)`,
+                      companies: []
+                    });
+                  } else {
+                    job.sendResponse({
+                      success: false,
+                      error: 'Google Maps page did not load (consent screen, captcha or blocked)'
+                    });
+                  }
                   return;
                 }
 

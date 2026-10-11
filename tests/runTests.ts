@@ -1,5 +1,5 @@
 /**
- * Automated Test Suite for MapCareer Discovery & Verification Engine
+ * Automated Test Suite for MapCareer Discovery & Integrity
  * 
  * Verifies:
  * 1. Successful Places API response parsing & honest fields
@@ -9,7 +9,7 @@
  * 5. Deduplication of duplicate Place IDs
  * 6. Missing contact details (properly undefined, no fabricated data)
  * 7. Missing coordinates handling (no synthetic coordinates)
- * 8. Email discovery (no domain guessing, requires actual text match)
+ * 8. Email discovery with mocked DNS lookup (no domain guessing, requires actual text match)
  * 9. No email found handling
  * 10. Missing website parameter handling
  * 11. Coordinate extraction from URL (!3d...!4d...)
@@ -22,20 +22,34 @@
  * 18. Extension manifest does not contain "<all_urls>"
  * 19. Extension manifest does not contain broad host permissions
  * 20. Place ID extraction from URL (!1s0x...:0x...)
+ * 21. content-maps.js does not contain duplicate parsing function definitions
+ * 22. SSRF guard blocks private/loopback IP resolution (127.0.0.1, 10.0.0.5)
+ * 23. SSRF guard blocks redirect to metadata/private IP (169.254.169.254)
  */
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { searchPlacesText } from '../src/server/placesService';
 import { discoverCompanyEmail } from '../src/server/emailDiscoveryService';
-import { 
-  parseCoordinates, 
-  parsePlaceId, 
-  parsePhone, 
+import { setDnsLookupForTests, safeFetch, validateSafeUrl } from '../src/server/ssrfGuard';
+
+// Single source of truth for parsing logic: public/extension/parsing.js
+// Imported dynamically or via createRequire
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const parsing = require('../public/extension/parsing.js');
+
+const {
+  parseCoordinates,
+  parsePlaceId,
+  parsePhone,
   parseAddress,
+  isPhoneToken,
+  isAddressToken,
   isCandidatePhone,
   isCandidateAddress
-} from '../src/utils/mapsParsing';
+} = parsing;
 
 let passed = 0;
 let failed = 0;
@@ -234,6 +248,11 @@ async function runTests() {
   // ----------------------------------------------------
   console.log('\n[Suite 2: Email Discovery Service]');
 
+  // Inject test DNS resolver for unit tests so tests never rely on external internet
+  setDnsLookupForTests(async (hostname) => {
+    return [{ address: '93.184.216.34', family: 4 }];
+  });
+
   // Test 8: Extract email only from real HTML text
   {
     const mockHtml = `
@@ -277,6 +296,9 @@ async function runTests() {
     const result = await discoverCompanyEmail(undefined);
     assert(result.status === 'no_email_found', '10. Undefined website returns no_email_found safely');
   }
+
+  // Reset DNS lookup back to default
+  setDnsLookupForTests(null);
 
   // ----------------------------------------------------
   // TEST SUITE 3: Maps Parsing Module & Extension Security
@@ -353,7 +375,63 @@ async function runTests() {
     assert(placeId === '0x479e75f9a1234567:0xabcdef1234567890', '20. Place ID correctly extracted from Google place link');
   }
 
-  // Restore fetch
+  // Test 21: content-maps.js does NOT contain its own definitions of parsing functions
+  {
+    const contentMapsPath = path.resolve(process.cwd(), 'public/extension/content-maps.js');
+    const contentMapsSrc = fs.readFileSync(contentMapsPath, 'utf-8');
+    const hasOwnPhoneToken = contentMapsSrc.includes('function isPhoneToken');
+    const hasOwnAddressToken = contentMapsSrc.includes('function isAddressToken');
+    const hasOwnParseCoordinates = contentMapsSrc.includes('function parseCoordinates');
+    assert(
+      !hasOwnPhoneToken && !hasOwnAddressToken && !hasOwnParseCoordinates,
+      '21. content-maps.js does NOT duplicate parsing functions (uses parsing.js source of truth)'
+    );
+  }
+
+  // ----------------------------------------------------
+  // TEST SUITE 4: SSRF Guard Security Integrity
+  // ----------------------------------------------------
+  console.log('\n[Suite 4: SSRF Guard Security Integrity]');
+
+  // Test 22: Host that resolves to 127.0.0.1 or 10.0.0.5 is blocked
+  {
+    setDnsLookupForTests(async (hostname) => {
+      if (hostname === 'evil-loopback.com') {
+        return [{ address: '127.0.0.1', family: 4 }];
+      }
+      if (hostname === 'evil-internal.com') {
+        return [{ address: '10.0.0.5', family: 4 }];
+      }
+      return [{ address: '93.184.216.34', family: 4 }];
+    });
+
+    const checkLoopback = await validateSafeUrl('https://evil-loopback.com/secret');
+    const checkInternal = await validateSafeUrl('https://evil-internal.com/data');
+
+    assert(!checkLoopback.safe && (checkLoopback.error?.includes('private IP') ?? false), '22. Host that resolves to 127.0.0.1 is blocked');
+    assert(!checkInternal.safe && (checkInternal.error?.includes('private IP') ?? false), '22. Host that resolves to 10.0.0.5 is blocked');
+  }
+
+  // Test 23: Redirect to http://169.254.169.254/ is blocked
+  {
+    global.fetch = async (url: any) => {
+      if (String(url).includes('public-site.com')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'http://169.254.169.254/latest/meta-data/' }
+        });
+      }
+      return new Response('meta-data-exposed', { status: 200 });
+    };
+
+    const fetchResult = await safeFetch('https://public-site.com/redirect');
+    assert(fetchResult === null, '23. Redirect to http://169.254.169.254/ is blocked');
+
+    // Reset DNS lookup
+    setDnsLookupForTests(null);
+  }
+
+  // Restore global fetch
   global.fetch = originalFetch;
 
   console.log('\n----------------------------------------------------');
