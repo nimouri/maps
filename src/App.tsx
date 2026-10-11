@@ -14,20 +14,23 @@ import { ResultsTableView } from './components/ResultsTableView';
 import { ResultsMapView } from './components/ResultsMapView';
 import { CompanyDetailModal } from './components/CompanyDetailModal';
 import { ColdOutreachModal } from './components/ColdOutreachModal';
+import { AlertCircle, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   // Initial Filters
   const [filters, setFilters] = useState<ScrapeFilters>({
     country: 'DE',
     selectedTiers: ['big'],
-    selectedCities: ['Berlin', 'München', 'Köln', 'Frankfurt am Main'],
-    jobQuery: 'Pflegefachkraft',
+    selectedCities: ['München', 'Berlin'],
+    jobQuery: 'Pflegeheim',
     jobType: 'ausbildung',
+    mustHaveWebsite: false,
     mustHaveEmail: false,
-    minRating: 3.5,
-    hasAusbildungOnly: false,
-    crawlSpeed: 'fast',
-    maxResultsPerCity: 5
+    confirmedAusbildungOnly: false,
+    minRating: 3.0,
+    maxResultsPerCity: 5,
+    autoDiscoverEmails: true,
+    autoVerifyJobs: true
   });
 
   // Active View
@@ -36,19 +39,21 @@ export default function App() {
   // Scraped Companies Data
   const [companies, setCompanies] = useState<ScrapedCompany[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [scanningIds, setScanningIds] = useState<string[]>([]);
+  const [apiError, setApiError] = useState<{ message: string; code?: string } | null>(null);
 
   // Logs and Console State
   const [logs, setLogs] = useState<CrawlerLogEntry[]>([]);
   const [activeModalCompany, setActiveModalCompany] = useState<ScrapedCompany | null>(null);
   const [showOutreachModal, setShowOutreachModal] = useState(false);
 
-  // Crawler Run & Pipeline State
+  // Pipeline State
   const [stats, setStats] = useState<CrawlerStats>({
     totalCitiesQueued: 0,
     citiesCompleted: 0,
-    companiesFound: 0,
-    careerEmailsFound: 0,
-    ausbildungFound: 0,
+    placesFound: 0,
+    emailsDiscovered: 0,
+    confirmedAusbildung: 0,
     currentCity: '',
     currentCompany: '',
     currentStep: 'idle',
@@ -57,7 +62,6 @@ export default function App() {
     elapsedSeconds: 0
   });
 
-  // Mutable refs for crawler control
   const isCancelledRef = useRef(false);
   const isPausedRef = useRef(false);
 
@@ -85,7 +89,6 @@ export default function App() {
     setLogs((prev) => [...prev, entry]);
   }, []);
 
-  // Sleep utility respecting pause and cancel
   const sleepWithCancel = useCallback(async (ms: number) => {
     const step = 50;
     let elapsed = 0;
@@ -101,12 +104,106 @@ export default function App() {
     return !isCancelledRef.current;
   }, []);
 
-  // Crawl Orchestrator
+  // On-demand Email Discovery for a single company
+  const handleScanEmail = async (company: ScrapedCompany) => {
+    if (!company.website) return;
+    const scanKey = `${company.id}-email`;
+    setScanningIds(prev => [...prev, scanKey]);
+
+    addLog('info', 'contact_discovery', company.city, `Scanning public pages for ${company.name}...`, company.name, company.website);
+
+    try {
+      const res = await fetch('/api/places/discover-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ websiteUrl: company.website })
+      });
+      const data = await res.json();
+
+      if (data.success && data.result) {
+        const result = data.result;
+        setCompanies(prev => prev.map(c => {
+          if (c.id === company.id) {
+            return {
+              ...c,
+              emailStatus: result.status,
+              careerEmail: result.primaryEmail || c.careerEmail,
+              emailSourceUrl: result.sourceUrl,
+              emailDiscoveredAt: result.discoveredAt,
+              allDiscoveredEmails: result.allEmails
+            };
+          }
+          return c;
+        }));
+
+        if (result.primaryEmail) {
+          addLog('success', 'contact_discovery', company.city, `Found verified public email: ${result.primaryEmail}`, company.name, result.sourceUrl);
+          setStats(s => ({ ...s, emailsDiscovered: s.emailsDiscovered + 1 }));
+        } else {
+          addLog('info', 'contact_discovery', company.city, `No public email address found on official site.`, company.name);
+        }
+      }
+    } catch (err: any) {
+      addLog('warn', 'contact_discovery', company.city, `Contact scan error: ${err.message}`, company.name);
+    } finally {
+      setScanningIds(prev => prev.filter(k => k !== scanKey));
+    }
+  };
+
+  // On-demand Job Verification for a single company
+  const handleVerifyJobs = async (company: ScrapedCompany) => {
+    if (!company.website) return;
+    const scanKey = `${company.id}-jobs`;
+    setScanningIds(prev => [...prev, scanKey]);
+
+    addLog('info', 'job_verification', company.city, `Inspecting career portal for ${company.name}...`, company.name, company.website);
+
+    try {
+      const res = await fetch('/api/places/verify-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ websiteUrl: company.website, targetQuery: filters.jobQuery })
+      });
+      const data = await res.json();
+
+      if (data.success && data.result) {
+        const result = data.result;
+        const isConfirmed = result.status === 'confirmed_listing';
+
+        setCompanies(prev => prev.map(c => {
+          if (c.id === company.id) {
+            return {
+              ...c,
+              ausbildungStatus: result.status,
+              confirmedListings: result.listings,
+              careerPortalUrl: result.careerPortalUrl,
+              jobVerificationNotes: result.notes
+            };
+          }
+          return c;
+        }));
+
+        if (isConfirmed) {
+          addLog('success', 'job_verification', company.city, `Ausbildung Confirmed: ${result.listings.length} verified listings on career portal.`, company.name, result.careerPortalUrl);
+          setStats(s => ({ ...s, confirmedAusbildung: s.confirmedAusbildung + 1 }));
+        } else {
+          addLog('info', 'job_verification', company.city, `No active Ausbildung listing confirmed on official career page.`, company.name);
+        }
+      }
+    } catch (err: any) {
+      addLog('warn', 'job_verification', company.city, `Career verification error: ${err.message}`, company.name);
+    } finally {
+      setScanningIds(prev => prev.filter(k => k !== scanKey));
+    }
+  };
+
+  // Main Google Places API Orchestrator
   const runCrawlerPipeline = async () => {
     if (filters.selectedCities.length === 0 || !filters.jobQuery.trim()) return;
 
     isCancelledRef.current = false;
     isPausedRef.current = false;
+    setApiError(null);
 
     setStats((prev) => ({
       ...prev,
@@ -114,25 +211,16 @@ export default function App() {
       isPaused: false,
       totalCitiesQueued: filters.selectedCities.length,
       citiesCompleted: 0,
-      currentStep: 'maps_search',
+      currentStep: 'places_search',
       currentCity: filters.selectedCities[0]
     }));
 
     addLog(
       'info',
-      'maps_search',
+      'places_search',
       'INIT',
-      `Starting background Google Maps & Career crawler for query: "${filters.jobQuery}" across ${filters.selectedCities.length} cities (${filters.country})`
+      `Executing Google Places API (New) Text Search for: "${filters.jobQuery}" in ${filters.selectedCities.length} cities (${filters.country})`
     );
-
-    // Determine sleep delays based on crawlSpeed setting
-    const delayStep = filters.crawlSpeed === 'instant' 
-      ? 40 
-      : filters.crawlSpeed === 'fast' 
-      ? 500 
-      : filters.crawlSpeed === 'normal' 
-      ? 1400 
-      : 2400;
 
     for (let i = 0; i < filters.selectedCities.length; i++) {
       if (isCancelledRef.current) break;
@@ -142,139 +230,156 @@ export default function App() {
       setStats((prev) => ({
         ...prev,
         currentCity: cityName,
-        currentStep: 'maps_search'
+        currentStep: 'places_search'
       }));
 
-      // 1. Google Maps Query Step
       addLog(
         'info',
-        'maps_search',
+        'places_search',
         cityName,
-        `Navigating to Google Maps search: "${filters.jobQuery} ${cityName}"`
-      );
-      if (!(await sleepWithCancel(delayStep))) break;
-
-      // 2. Place Details Extraction
-      setStats((prev) => ({ ...prev, currentStep: 'place_details' }));
-      addLog(
-        'info',
-        'place_details',
-        cityName,
-        `Extracting local business coordinates, ratings, and domains for ${cityName}...`
+        `Calling Google Places API (New) Text Search: "${filters.jobQuery} in ${cityName}"`
       );
 
       try {
-        // Fetch real Google Maps grounded search from server
-        const response = await fetch('/api/scrape/companies', {
+        const response = await fetch('/api/places/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            country: filters.country,
             city: cityName,
-            jobQuery: filters.jobQuery,
-            jobType: filters.jobType,
-            maxResults: filters.maxResultsPerCity,
-            cityTier: filters.selectedTiers[0] || 'all'
+            query: filters.jobQuery,
+            country: filters.country,
+            pageSize: filters.maxResultsPerCity
           })
         });
 
         if (!response.ok) {
-          throw new Error(`Server returned HTTP ${response.status}`);
+          const errData = await response.json();
+          const errorMsg = errData.error || `HTTP ${response.status} from server`;
+          setApiError({ message: errorMsg, code: errData.code });
+          addLog('error', 'places_search', cityName, `Google Places API Error: ${errorMsg}`);
+          // Do NOT fake results! Proceed to next city or break
+          continue;
         }
 
         const data = await response.json();
-        const cityCompanies: ScrapedCompany[] = data.results || [];
+        const cityPlaces: ScrapedCompany[] = data.companies || [];
 
         addLog(
           'success',
-          'place_details',
+          'places_search',
           cityName,
-          `Discovered ${cityCompanies.length} relevant employers in ${cityName} via ${data.source === 'google_search_grounded' ? 'Google Search Grounding' : 'Verified Directory'}`
+          `Received ${cityPlaces.length} real businesses with Place IDs from Google Places API (New)`
         );
 
-        // Process each discovered company
-        for (const comp of cityCompanies) {
+        // Deduplicate and append to state
+        setCompanies(prev => {
+          const existingIds = new Set(prev.map(c => c.id));
+          const newUnique = cityPlaces.filter(c => !existingIds.has(c.id));
+          return [...newUnique, ...prev];
+        });
+
+        setStats(s => ({
+          ...s,
+          placesFound: s.placesFound + cityPlaces.length
+        }));
+
+        // Secondary Pipelines: Contact Discovery & Career Verification
+        for (const place of cityPlaces) {
           if (isCancelledRef.current) break;
 
-          setStats((prev) => ({
-            ...prev,
-            currentCompany: comp.name,
-            currentStep: 'web_crawl'
+          setStats(s => ({
+            ...s,
+            currentCompany: place.name
           }));
 
-          // 3. Official Web Crawl
-          addLog(
-            'scrape',
-            'web_crawl',
-            cityName,
-            `Visiting official portal: ${comp.website || comp.careerUrl}... Scanning for /karriere, /jobs, /ausbildung`,
-            comp.name,
-            comp.careerUrl || comp.website
-          );
-          if (!(await sleepWithCancel(delayStep / 1.5))) break;
+          // 1. Email Discovery if enabled
+          if (filters.autoDiscoverEmails && place.website) {
+            setStats(s => ({ ...s, currentStep: 'contact_discovery' }));
+            addLog('info', 'contact_discovery', cityName, `Probing website for public contacts...`, place.name, place.website);
 
-          // 4. Career Email Extraction
-          setStats((prev) => ({ ...prev, currentStep: 'email_extract' }));
-          if (comp.careerEmail) {
-            addLog(
-              'success',
-              'email_extract',
-              cityName,
-              `Extracted verified career email: ${comp.careerEmail}`,
-              comp.name,
-              undefined,
-              comp.phone ? `Tel: ${comp.phone}` : undefined
-            );
-          } else {
-            addLog(
-              'info',
-              'email_extract',
-              cityName,
-              `No direct email found in header/footer; extracted application portal form URL.`,
-              comp.name
-            );
+            try {
+              const emailRes = await fetch('/api/places/discover-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ websiteUrl: place.website })
+              });
+              const emailData = await emailRes.json();
+              if (emailData.success && emailData.result) {
+                const r = emailData.result;
+                setCompanies(prev => prev.map(c => {
+                  if (c.id === place.id) {
+                    return {
+                      ...c,
+                      emailStatus: r.status,
+                      careerEmail: r.primaryEmail || c.careerEmail,
+                      emailSourceUrl: r.sourceUrl,
+                      emailDiscoveredAt: r.discoveredAt,
+                      allDiscoveredEmails: r.allEmails
+                    };
+                  }
+                  return c;
+                }));
+
+                if (r.primaryEmail) {
+                  setStats(s => ({ ...s, emailsDiscovered: s.emailsDiscovered + 1 }));
+                  addLog('success', 'contact_discovery', cityName, `Email retrieved: ${r.primaryEmail}`, place.name, r.sourceUrl);
+                }
+              }
+            } catch (err: any) {
+              addLog('warn', 'contact_discovery', cityName, `Email probe failed: ${err.message}`, place.name);
+            }
           }
 
-          // 5. Career & Ausbildung Parsing
-          setStats((prev) => ({ ...prev, currentStep: 'career_parse' }));
-          addLog(
-            'info',
-            'career_parse',
-            cityName,
-            `Catalogued ${comp.openings.length} matching job/ausbildung postings. Status: ${comp.hasAusbildung ? 'Ausbildung available' : 'General hiring'}`,
-            comp.name
-          );
+          // 2. Job / Ausbildung Verification if enabled
+          if (filters.autoVerifyJobs && place.website) {
+            setStats(s => ({ ...s, currentStep: 'job_verification' }));
+            try {
+              const jobRes = await fetch('/api/places/verify-jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ websiteUrl: place.website, targetQuery: filters.jobQuery })
+              });
+              const jobData = await jobRes.json();
+              if (jobData.success && jobData.result) {
+                const r = jobData.result;
+                setCompanies(prev => prev.map(c => {
+                  if (c.id === place.id) {
+                    return {
+                      ...c,
+                      ausbildungStatus: r.status,
+                      confirmedListings: r.listings,
+                      careerPortalUrl: r.careerPortalUrl,
+                      jobVerificationNotes: r.notes
+                    };
+                  }
+                  return c;
+                }));
 
-          // Update Companies collection
-          setCompanies((prev) => {
-            const exists = prev.some((c) => c.name.toLowerCase() === comp.name.toLowerCase() && c.city === comp.city);
-            if (exists) return prev;
-            return [comp, ...prev];
-          });
+                if (r.status === 'confirmed_listing') {
+                  setStats(s => ({ ...s, confirmedAusbildung: s.confirmedAusbildung + 1 }));
+                  addLog('success', 'job_verification', cityName, `Ausbildung Confirmed on career page: ${r.listings[0]?.title}`, place.name, r.careerPortalUrl);
+                }
+              }
+            } catch (err: any) {
+              addLog('warn', 'job_verification', cityName, `Job verification failed: ${err.message}`, place.name);
+            }
+          }
 
-          // Update Stats counters
-          setStats((prev) => ({
-            ...prev,
-            companiesFound: prev.companiesFound + 1,
-            careerEmailsFound: prev.careerEmailsFound + (comp.careerEmail ? 1 : 0),
-            ausbildungFound: prev.ausbildungFound + (comp.hasAusbildung ? 1 : 0)
-          }));
-
-          if (!(await sleepWithCancel(delayStep / 2))) break;
+          await sleepWithCancel(200);
         }
 
       } catch (err: any) {
-        addLog('warn', 'place_details', cityName, `Notice: Scrape iteration info for ${cityName}: ${err.message}`);
+        addLog('error', 'places_search', cityName, `Request error for ${cityName}: ${err.message}`);
+        setApiError({ message: err.message });
       }
 
-      // Mark City completed
-      setStats((prev) => ({
+      setStats(prev => ({
         ...prev,
         citiesCompleted: prev.citiesCompleted + 1
       }));
     }
 
-    setStats((prev) => ({
+    setStats(prev => ({
       ...prev,
       isRunning: false,
       isPaused: false,
@@ -283,24 +388,19 @@ export default function App() {
       currentCity: ''
     }));
 
-    addLog(
-      'success',
-      'complete',
-      'QUEUE_DONE',
-      `Crawling complete! Finished searching across all selected cities.`
-    );
+    addLog('success', 'complete', 'QUEUE_DONE', `Discovery pipeline finished.`);
   };
 
   const handlePause = () => {
     isPausedRef.current = true;
-    setStats((prev) => ({ ...prev, isPaused: true }));
-    addLog('warn', 'maps_search', stats.currentCity || 'SYS', 'Crawler paused by user.');
+    setStats(prev => ({ ...prev, isPaused: true }));
+    addLog('warn', 'places_search', stats.currentCity || 'SYS', 'Search paused by user.');
   };
 
   const handleResume = () => {
     isPausedRef.current = false;
-    setStats((prev) => ({ ...prev, isPaused: false }));
-    addLog('info', 'maps_search', stats.currentCity || 'SYS', 'Crawler resumed by user.');
+    setStats(prev => ({ ...prev, isPaused: false }));
+    addLog('info', 'places_search', stats.currentCity || 'SYS', 'Search resumed by user.');
   };
 
   const handleReset = () => {
@@ -309,9 +409,9 @@ export default function App() {
     setStats({
       totalCitiesQueued: 0,
       citiesCompleted: 0,
-      companiesFound: 0,
-      careerEmailsFound: 0,
-      ausbildungFound: 0,
+      placesFound: 0,
+      emailsDiscovered: 0,
+      confirmedAusbildung: 0,
       currentCity: '',
       currentCompany: '',
       currentStep: 'idle',
@@ -319,67 +419,70 @@ export default function App() {
       isPaused: false,
       elapsedSeconds: 0
     });
+    setCompanies([]);
     setLogs([]);
+    setApiError(null);
   };
 
-  // Toggle selection
   const handleToggleSelect = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   };
 
   const handleSelectAll = (select: boolean) => {
     if (select) {
-      setSelectedIds(companies.map((c) => c.id));
+      setSelectedIds(companies.map(c => c.id));
     } else {
       setSelectedIds([]);
     }
   };
 
-  // Export to CSV
+  // Export to CSV with full audit trail
   const handleExportCsv = () => {
     if (companies.length === 0) return;
 
     const headers = [
-      'Company Name',
+      'Google Place ID',
+      'Business Name',
       'City',
-      'State',
       'Address',
       'Country',
-      'Career Email',
+      'Google Maps URL',
+      'Official Website',
       'Phone',
-      'Website',
-      'Career Portal',
-      'Ausbildung Offered',
-      'Discovered Job Openings',
-      'Maps Rating',
+      'Rating',
       'Reviews Count',
-      'Google Maps URL'
+      'Discovered Email',
+      'Email Status',
+      'Email Source URL',
+      'Ausbildung Verification Status',
+      'Confirmed Job Titles'
     ];
 
-    const rows = companies.map((c) => [
+    const rows = companies.map(c => [
+      `"${c.placeId}"`,
       `"${c.name.replace(/"/g, '""')}"`,
       `"${c.city}"`,
-      `"${c.state}"`,
       `"${c.address.replace(/"/g, '""')}"`,
       `"${c.country}"`,
-      `"${c.careerEmail || ''}"`,
-      `"${c.phone || ''}"`,
+      `"${c.mapsUrl}"`,
       `"${c.website || ''}"`,
-      `"${c.careerUrl || ''}"`,
-      c.hasAusbildung ? 'Yes' : 'No',
-      `"${c.openings.map((o) => o.title).join(' | ').replace(/"/g, '""')}"`,
-      c.rating || '',
-      c.reviewsCount || '',
-      `"${c.mapsUrl}"`
+      `"${c.phone || ''}"`,
+      c.rating ?? '',
+      c.reviewsCount ?? '',
+      `"${c.careerEmail || ''}"`,
+      `"${c.emailStatus}"`,
+      `"${c.emailSourceUrl || ''}"`,
+      `"${c.ausbildungStatus}"`,
+      `"${c.confirmedListings.map(l => l.title).join(' | ').replace(/"/g, '""')}"`
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `mapcareer_scrape_${filters.jobQuery.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `mapcareer_places_${filters.jobQuery.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -391,11 +494,14 @@ export default function App() {
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(companies, null, 2));
     const link = document.createElement('a');
     link.setAttribute('href', dataStr);
-    link.setAttribute('download', `mapcareer_data_${filters.jobQuery.replace(/\s+/g, '_')}.json`);
+    link.setAttribute('download', `mapcareer_places_${filters.jobQuery.replace(/\s+/g, '_')}.json`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
+
+  // Check updated modal company from state
+  const currentModalCompany = companies.find(c => c.id === activeModalCompany?.id) || activeModalCompany;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -417,6 +523,20 @@ export default function App() {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         
+        {/* Error Banner if API error occurred */}
+        {apiError && (
+          <div className="bg-rose-950/40 border border-rose-500/50 rounded-xl p-4 flex items-start gap-3 shadow-lg">
+            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-rose-200">Google Places API Error</h3>
+              <p className="text-xs text-rose-300/90 leading-relaxed">{apiError.message}</p>
+              <p className="text-[11px] text-rose-400/80">
+                Data integrity enforcement: Mock fallbacks are disabled. Please check your GOOGLE_MAPS_API_KEY and quota.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Search, Filter & Trigger Configuration Panel */}
         <SearchConfigPanel
           filters={filters}
@@ -439,7 +559,6 @@ export default function App() {
 
         {activeView === 'table' && (
           <div className="space-y-6">
-            {/* If crawler is running in the background, show condensed live ticker */}
             {stats.isRunning && (
               <div className="bg-slate-900 border border-amber-500/30 rounded-xl p-3.5 flex items-center justify-between shadow-lg text-xs">
                 <div className="flex items-center gap-3">
@@ -448,7 +567,7 @@ export default function App() {
                     <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
                   </span>
                   <div>
-                    <span className="text-slate-400">Background crawler is active: </span>
+                    <span className="text-slate-400">Executing Places API discovery: </span>
                     <strong className="text-white font-semibold">
                       Searching {stats.currentCity || 'cities'} for {filters.jobQuery}
                     </strong>
@@ -465,7 +584,7 @@ export default function App() {
                   onClick={() => setActiveView('crawler')}
                   className="text-xs text-amber-400 hover:text-amber-300 font-medium underline"
                 >
-                  View Live Console &rarr;
+                  View Pipeline Logs &rarr;
                 </button>
               </div>
             )}
@@ -474,9 +593,12 @@ export default function App() {
               companies={companies}
               onSelectCompany={(comp) => setActiveModalCompany(comp)}
               onGeneratePitch={(comp) => setActiveModalCompany(comp)}
+              onScanEmail={handleScanEmail}
+              onVerifyJobs={handleVerifyJobs}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
               onSelectAll={handleSelectAll}
+              scanningIds={scanningIds}
             />
           </div>
         )}
@@ -491,16 +613,19 @@ export default function App() {
 
       </main>
 
-      {/* Modal: Full Company Dossier & Custom Application Generator */}
-      {activeModalCompany && (
+      {/* Modal: Full Verified Dossier */}
+      {currentModalCompany && (
         <CompanyDetailModal
-          company={activeModalCompany}
+          company={currentModalCompany}
           onClose={() => setActiveModalCompany(null)}
-          onGenerateAiPitch={() => {}}
+          onScanEmail={handleScanEmail}
+          onVerifyJobs={handleVerifyJobs}
+          isScanningEmail={scanningIds.includes(`${currentModalCompany.id}-email`)}
+          isVerifyingJobs={scanningIds.includes(`${currentModalCompany.id}-jobs`)}
         />
       )}
 
-      {/* Modal: Cold Email Outreach & Bulk Email Exporter */}
+      {/* Modal: Discovered Contacts Export */}
       {showOutreachModal && (
         <ColdOutreachModal
           companies={companies}
@@ -510,14 +635,14 @@ export default function App() {
         />
       )}
 
-      {/* Footer */}
+      {/* Attribution Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-7xl mx-auto px-4 space-y-1">
           <p>
-            MapCareer Scraper · Automated Google Maps and Career Intelligence for DACH (Germany, Austria, Switzerland)
+            MapCareer Discovery · Powered by Google Maps Platform (Places API New)
           </p>
-          <p className="mt-1 text-[11px] text-slate-600">
-            Powered by Google Search Grounding and Automated Web Career Parsing
+          <p className="text-[11px] text-slate-600">
+            Attribution: Google Maps · All business listings require provider Place IDs. Missing fields are explicitly marked as "Not verified".
           </p>
         </div>
       </footer>

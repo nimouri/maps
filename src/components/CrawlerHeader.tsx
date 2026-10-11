@@ -10,7 +10,8 @@ import {
   MapPin, 
   CheckCircle2, 
   Search,
-  Sparkles
+  ShieldCheck,
+  Building2
 } from 'lucide-react';
 import { CrawlerStats } from '../types/scraper';
 
@@ -51,32 +52,33 @@ export const CrawlerHeader: React.FC<Props> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold text-white tracking-tight">MapCareer Scraper</h1>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
-                  DACH Crawler
+                <h1 className="text-lg font-bold text-white tracking-tight">MapCareer Discovery</h1>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  Google Places API (New)
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Automated Google Maps, Career & Email Extractor for Jobs & Ausbildung
+                Verified German & Austrian Business Discovery & Career Intelligence
               </p>
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
+          {/* Genuine Verified Metrics Bar */}
           <div className="flex items-center gap-4 text-xs text-slate-300 bg-slate-950/60 px-3.5 py-1.5 rounded-lg border border-slate-800/80">
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-400">Companies:</span>
+              <span className="text-slate-400">Verified Places:</span>
               <span className="font-semibold text-white">{totalCompanies}</span>
             </div>
             <span className="text-slate-700" aria-hidden="true">|</span>
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-400">Verified Emails:</span>
-              <span className="font-semibold text-emerald-400">{stats.careerEmailsFound}</span>
+              <span className="text-slate-400">Discovered Emails:</span>
+              <span className="font-semibold text-emerald-400">{stats.emailsDiscovered}</span>
             </div>
             <span className="text-slate-700" aria-hidden="true">|</span>
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-400">Ausbildung:</span>
-              <span className="font-semibold text-amber-300">{stats.ausbildungFound}</span>
+              <span className="text-slate-400">Confirmed Ausbildung:</span>
+              <span className="font-semibold text-amber-300">{stats.confirmedAusbildung}</span>
             </div>
             <span className="text-slate-700" aria-hidden="true">|</span>
             <div className="flex items-center gap-1.5">
@@ -84,7 +86,7 @@ export const CrawlerHeader: React.FC<Props> = ({
               <span className="font-semibold text-sky-400">
                 {stats.totalCitiesQueued > 0 
                   ? `${Math.round((stats.citiesCompleted / stats.totalCitiesQueued) * 100)}%`
-                  : 'Ready'}
+                  : 'Idle'}
               </span>
             </div>
           </div>
@@ -102,7 +104,7 @@ export const CrawlerHeader: React.FC<Props> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Companies Table ({totalCompanies})
+                Businesses ({totalCompanies})
               </button>
               <button
                 type="button"
@@ -130,7 +132,7 @@ export const CrawlerHeader: React.FC<Props> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                 )}
-                Crawler Console
+                API Pipeline Logs
               </button>
             </div>
 
@@ -142,7 +144,7 @@ export const CrawlerHeader: React.FC<Props> = ({
                 className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-lg shadow-sm transition-all active:scale-95"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
-                Start Crawler
+                Run Discovery
               </button>
             ) : stats.isPaused ? (
               <button
@@ -164,16 +166,28 @@ export const CrawlerHeader: React.FC<Props> = ({
               </button>
             )}
 
-            {/* Outreach / Cold Email Modal */}
+            {/* Reset */}
+            {totalCompanies > 0 && (
+              <button
+                type="button"
+                onClick={onResetCrawl}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-lg border border-slate-700 transition-colors"
+                title="Reset search results"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Outreach / Verified Email Export */}
             <button
               type="button"
               onClick={onOpenOutreachModal}
               disabled={totalCompanies === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition-colors"
-              title="Copy verified emails or generate German applications"
+              title="View discovered contacts and export emails"
             >
               <Mail className="w-3.5 h-3.5 text-emerald-400" />
-              Email Outreach ({stats.careerEmailsFound})
+              Contacts ({stats.emailsDiscovered})
             </button>
 
             {/* Export CSV */}
@@ -185,7 +199,7 @@ export const CrawlerHeader: React.FC<Props> = ({
               title="Export results to CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-400" />
-              Export
+              Export CSV
             </button>
           </div>
 

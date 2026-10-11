@@ -12,7 +12,8 @@ import {
   Zap, 
   Globe2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ShieldCheck
 } from 'lucide-react';
 import { CountryCode, CityTier, JobType, ScrapeFilters, CityInfo } from '../types/scraper';
 import { CITIES_DATABASE, COUNTRY_NAMES, TIER_LABELS } from '../data/citiesData';
@@ -79,8 +80,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
     let updatedTiers: CityTier[];
     if (tier === 'all') {
       updatedTiers = ['all'];
-      // Select top cities across tiers
-      const allTierCities = countryCities.slice(0, 6).map(c => c.name);
+      const allTierCities = countryCities.slice(0, 4).map(c => c.name);
       onChangeFilters({
         ...filters,
         selectedTiers: updatedTiers,
@@ -96,10 +96,9 @@ export const SearchConfigPanel: React.FC<Props> = ({
       updatedTiers = [...filters.selectedTiers.filter(t => t !== 'all'), tier];
     }
 
-    // Auto update selected cities to match active tiers
     const matchingCities = countryCities
       .filter(c => updatedTiers.includes(c.tier))
-      .slice(0, 5)
+      .slice(0, 4)
       .map(c => c.name);
 
     onChangeFilters({
@@ -144,10 +143,10 @@ export const SearchConfigPanel: React.FC<Props> = ({
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
               <Briefcase className="w-3.5 h-3.5 text-amber-400" />
-              Target Job, Role or Ausbildung
+              Target Job, Role or Business Type
             </label>
             <span className="text-xs text-slate-400">
-              Scrapes Google Maps employers & career pages
+              Searches real businesses via Google Places API (New) Text Search
             </span>
           </div>
 
@@ -156,7 +155,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
               type="text"
               value={filters.jobQuery}
               onChange={(e) => onChangeFilters({ ...filters, jobQuery: e.target.value })}
-              placeholder="e.g. Pflegefachkraft, 1st Level IT Support, Fachinformatiker, Mechatroniker..."
+              placeholder="e.g. Pflegeheim, Klinikum, IT-Systemhaus, 1st Level IT Support, Softwarehaus, Maschinenbau..."
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all font-medium"
             />
             {filters.jobQuery && (
@@ -172,7 +171,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
 
           {/* Quick Presets */}
           <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-slate-400 mr-1">Quick Presets:</span>
+            <span className="text-[11px] text-slate-400 mr-1">Suggested Sectors:</span>
             {JOB_PRESETS.map((preset) => {
               const isActive = filters.jobQuery.toLowerCase().includes(preset.title.split(' ')[0].toLowerCase());
               return (
@@ -181,7 +180,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
                   type="button"
                   onClick={() => onChangeFilters({
                     ...filters,
-                    jobQuery: preset.title.split(' (')[0],
+                    jobQuery: preset.suggestedIndustries[0] || preset.title.split(' (')[0],
                     jobType: preset.defaultJobType
                   })}
                   className={`text-xs px-2.5 py-1 rounded-md transition-colors ${
@@ -235,7 +234,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
                 City Size Categories
               </label>
               <span className="text-[11px] text-slate-400">
-                Choose big, mid, small or combination
+                Filter by metropolitan, mid-sized, or small municipalities
               </span>
             </div>
 
@@ -278,7 +277,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                Target Cities to Scrape
+                Target Cities to Search
               </label>
               <span className="text-xs font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20">
                 {filters.selectedCities.length} selected
@@ -316,7 +315,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
             />
           </div>
 
-          {/* Scrollable list of selectable city pills */}
+          {/* Scrollable list of selectable city buttons */}
           <div className="max-h-36 overflow-y-auto p-2 bg-slate-950/80 rounded-lg border border-slate-800/80 flex flex-wrap gap-1.5">
             {visibleCities.length === 0 ? (
               <div className="text-xs text-slate-500 py-3 text-center w-full">
@@ -348,7 +347,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* ROW 4: Advanced Scraper Options Toggle */}
+        {/* ROW 4: Verification Pipelines & Reliability Filters */}
         <div>
           <button
             type="button"
@@ -356,51 +355,53 @@ export const SearchConfigPanel: React.FC<Props> = ({
             className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>Advanced Scraper & Filtering Options</span>
+            <span>Verification Pipelines & Reliability Filters</span>
             {showAdvanced ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
 
           {showAdvanced && (
             <div className="mt-3 p-4 bg-slate-950 rounded-lg border border-slate-800 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-xs">
               
-              {/* Job Type */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Employment Type
+              {/* Automated Verification Triggers */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                  Automated Pipelines
                 </label>
-                <select
-                  value={filters.jobType}
-                  onChange={(e) => onChangeFilters({ ...filters, jobType: e.target.value as JobType })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                >
-                  <option value="all">All Types (Ausbildung & Jobs)</option>
-                  <option value="ausbildung">Ausbildung (Vocational Apprenticeship)</option>
-                  <option value="fulltime">Vollzeit (Full-time)</option>
-                  <option value="parttime">Teilzeit (Part-time)</option>
-                  <option value="internship">Praktikum (Internship)</option>
-                  <option value="dual_study">Duales Studium</option>
-                </select>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={filters.autoDiscoverEmails}
+                    onChange={(e) => onChangeFilters({ ...filters, autoDiscoverEmails: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
+                  />
+                  <span>Scan public website for emails</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={filters.autoVerifyJobs}
+                    onChange={(e) => onChangeFilters({ ...filters, autoVerifyJobs: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
+                  />
+                  <span>Inspect career page for Ausbildung</span>
+                </label>
               </div>
 
-              {/* Crawl Speed / Simulation Mode */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Browser Throttling Speed
+              {/* Data Reliability Filters */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                  Result Filters
                 </label>
-                <select
-                  value={filters.crawlSpeed}
-                  onChange={(e) => onChangeFilters({ ...filters, crawlSpeed: e.target.value as any })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                >
-                  <option value="instant">Instant (Fastest)</option>
-                  <option value="fast">Fast (1.0s interval)</option>
-                  <option value="normal">Normal / Realistic (2.5s interval)</option>
-                  <option value="detailed">Thorough Deep Scan (4.0s interval)</option>
-                </select>
-              </div>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={filters.mustHaveWebsite}
+                    onChange={(e) => onChangeFilters({ ...filters, mustHaveWebsite: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
+                  />
+                  <span>Official website must be listed</span>
+                </label>
 
-              {/* Quality Filters */}
-              <div className="flex flex-col justify-end space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer text-slate-300">
                   <input
                     type="checkbox"
@@ -408,33 +409,44 @@ export const SearchConfigPanel: React.FC<Props> = ({
                     onChange={(e) => onChangeFilters({ ...filters, mustHaveEmail: e.target.checked })}
                     className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
                   />
-                  <span>Must have verified career email</span>
+                  <span>Discovered email must be present</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer text-slate-300">
                   <input
                     type="checkbox"
-                    checked={filters.hasAusbildungOnly}
-                    onChange={(e) => onChangeFilters({ ...filters, hasAusbildungOnly: e.target.checked })}
+                    checked={filters.confirmedAusbildungOnly}
+                    onChange={(e) => onChangeFilters({ ...filters, confirmedAusbildungOnly: e.target.checked })}
                     className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
                   />
-                  <span>Filter companies with Ausbildung only</span>
+                  <span>Confirmed Ausbildung only (Strict)</span>
                 </label>
               </div>
 
-              {/* Max Results Per City */}
+              {/* Places per city */}
               <div>
                 <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Max Companies Per City: {filters.maxResultsPerCity}
+                  Max Places Per City: {filters.maxResultsPerCity}
                 </label>
                 <input
                   type="range"
-                  min="2"
-                  max="12"
+                  min="1"
+                  max="20"
                   value={filters.maxResultsPerCity}
                   onChange={(e) => onChangeFilters({ ...filters, maxResultsPerCity: parseInt(e.target.value, 10) })}
                   className="w-full accent-amber-500"
                 />
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  Google Places API (New) limit per textQuery page is 20.
+                </span>
+              </div>
+
+              {/* Attribution Note */}
+              <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                <span className="font-semibold text-slate-300 block">Integrity Notice</span>
+                <p>
+                  A Google Maps presence verifies a registered business entity with a Place ID, but does not guarantee active job vacancies without attributable career verification.
+                </p>
               </div>
 
             </div>
@@ -463,7 +475,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
             className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-sm rounded-lg shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 active:scale-98"
           >
             <Zap className="w-4 h-4 fill-current" />
-            Launch Google Maps Scraper
+            Execute Places Text Search
           </button>
         </div>
 

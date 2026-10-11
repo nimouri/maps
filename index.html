@@ -3,7 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MapCareer Scraper - Google Maps Job & Ausbildung Finder</title>
+    <script>
+      // Compatibility shim for browser extensions attempting to monkey-patch window.fetch
+      (function() {
+        try {
+          var _origFetch = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return _origFetch;
+            },
+            set: function(fn) {
+              _origFetch = fn;
+            }
+          });
+        } catch (e) {
+          try {
+            var proto = Object.getPrototypeOf(window);
+            if (proto) {
+              var _protoFetch = proto.fetch || window.fetch;
+              Object.defineProperty(proto, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function() { return _protoFetch; },
+                set: function(fn) { _protoFetch = fn; }
+              });
+            }
+          } catch (e2) {}
+        }
+
+        // Suppress unhandled errors from injected third-party Chrome extensions
+        window.addEventListener('error', function(event) {
+          if (
+            (event.filename && event.filename.includes('chrome-extension://')) ||
+            (event.message && (
+              event.message.includes('Cannot set property fetch') ||
+              event.message.includes('which has only a getter')
+            ))
+          ) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+            return true;
+          }
+        }, true);
+      })();
+    </script>
+    <title>MapCareer Discovery - Google Maps Job & Ausbildung Finder</title>
     <meta name="description" content="Automated Google Maps and company career crawler to discover hiring employers, scrape verified career emails, and find job & Ausbildung opportunities across German and Austrian cities." />
     <meta property="og:title" content="MapCareer Scraper - Google Maps Job & Ausbildung Finder" />
     <meta property="og:description" content="Automated Google Maps and company career crawler to discover hiring employers, scrape verified career emails, and find job & Ausbildung opportunities across German and Austrian cities." />

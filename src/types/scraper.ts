@@ -4,6 +4,27 @@ export type CityTier = 'big' | 'mid' | 'small' | 'all';
 
 export type JobType = 'all' | 'ausbildung' | 'fulltime' | 'parttime' | 'internship' | 'dual_study';
 
+export type EmailDiscoveryStatus = 
+  | 'website_recruitment_email'   // Found on official website with recruitment intent (bewerbung@, jobs@, /karriere)
+  | 'website_general_email'       // Found on official website (info@, kontakt@)
+  | 'unverified_email'           // Email found but domain/mailbox uncorroborated
+  | 'no_email_found'             // Crawled official pages, no public email found
+  | 'not_checked';               // Contact discovery not yet executed
+
+export type AusbildungVerificationStatus = 
+  | 'confirmed_listing'          // Verified real apprenticeship posting found on official career portal
+  | 'unverified'                 // Company exists on Maps, but NO active Ausbildung listing verified
+  | 'not_checked';               // Job verification not yet executed
+
+export interface ConfirmedJobListing {
+  title: string;
+  jobType: 'Ausbildung' | 'Vollzeit' | 'Teilzeit' | 'Praktikum' | 'Duales Studium';
+  sourceUrl: string;
+  verifiedAt: string;
+  deadline?: string;
+  snippet?: string;
+}
+
 export interface CityInfo {
   name: string;
   country: CountryCode;
@@ -20,53 +41,54 @@ export interface ScrapeFilters {
   selectedCities: string[];
   jobQuery: string;
   jobType: JobType;
+  mustHaveWebsite: boolean;
   mustHaveEmail: boolean;
+  confirmedAusbildungOnly: boolean;
   minRating: number;
-  hasAusbildungOnly: boolean;
-  crawlSpeed: 'instant' | 'fast' | 'normal' | 'detailed';
   maxResultsPerCity: number;
-}
-
-export interface CompanyJobOpening {
-  title: string;
-  jobType: 'Ausbildung' | 'Vollzeit' | 'Teilzeit' | 'Praktikum' | 'Duales Studium';
-  description?: string;
-  requirements?: string[];
-  department?: string;
+  autoDiscoverEmails: boolean;
+  autoVerifyJobs: boolean;
 }
 
 export interface ScrapedCompany {
-  id: string;
+  id: string; // Google Place ID
+  placeId: string;
   name: string;
   city: string;
   state: string;
-  postalCode?: string;
   address: string;
   country: CountryCode;
-  website: string;
-  careerUrl?: string;
-  careerEmail?: string;
-  allEmails?: string[];
+  website?: string;
   phone?: string;
   rating?: number;
   reviewsCount?: number;
-  openings: CompanyJobOpening[];
-  hasAusbildung: boolean;
-  industry: string;
   lat: number;
   lng: number;
-  mapsUrl: string;
-  scrapedAt: string;
-  source: 'google_maps_scrape' | 'google_search_grounded' | 'verified_catalog';
-  status: 'scraped' | 'deep_scanned' | 'email_verified' | 'contacted';
-  notes?: string;
+  mapsUrl: string; // Real Google Maps URL provided by Google Places API
+  placeTypes: string[];
+  businessStatus?: string;
+  providerAttribution: 'Google Places API (New)';
+  discoveredAt: string;
+
+  // Real Email Discovery Pipeline
+  emailStatus: EmailDiscoveryStatus;
+  careerEmail?: string;
+  emailSourceUrl?: string;
+  emailDiscoveredAt?: string;
+  allDiscoveredEmails: string[];
+
+  // Real Job & Ausbildung Verification Pipeline
+  ausbildungStatus: AusbildungVerificationStatus;
+  confirmedListings: ConfirmedJobListing[];
+  careerPortalUrl?: string;
+  jobVerificationNotes?: string;
 }
 
 export interface CrawlerLogEntry {
   id: string;
   timestamp: string;
-  level: 'info' | 'success' | 'warn' | 'error' | 'scrape';
-  step: 'maps_search' | 'place_details' | 'web_crawl' | 'career_parse' | 'email_extract' | 'complete';
+  level: 'info' | 'success' | 'warn' | 'error';
+  step: 'places_search' | 'contact_discovery' | 'job_verification' | 'complete';
   city: string;
   companyName?: string;
   message: string;
@@ -77,14 +99,13 @@ export interface CrawlerLogEntry {
 export interface CrawlerStats {
   totalCitiesQueued: number;
   citiesCompleted: number;
-  companiesFound: number;
-  careerEmailsFound: number;
-  ausbildungFound: number;
+  placesFound: number;
+  emailsDiscovered: number;
+  confirmedAusbildung: number;
   currentCity: string;
   currentCompany: string;
   currentStep: string;
   isRunning: boolean;
   isPaused: boolean;
-  startTime?: number;
   elapsedSeconds: number;
 }

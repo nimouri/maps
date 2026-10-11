@@ -9,7 +9,8 @@ import {
   CheckCircle2, 
   FileJson,
   Send,
-  Building
+  Building2,
+  ShieldCheck
 } from 'lucide-react';
 import { ScrapedCompany } from '../types/scraper';
 
@@ -29,11 +30,10 @@ export const ColdOutreachModal: React.FC<Props> = ({
   const [format, setFormat] = useState<'comma' | 'lines' | 'bcc'>('comma');
   const [copied, setCopied] = useState(false);
 
-  // Extract all valid emails
+  // Extract all genuinely discovered emails
+  const verifiedCompaniesWithEmail = companies.filter(c => Boolean(c.careerEmail));
   const validEmails = Array.from(new Set(
-    companies
-      .map(c => c.careerEmail)
-      .filter((e): e is string => !!e && e.includes('@'))
+    verifiedCompaniesWithEmail.map(c => c.careerEmail!).filter(e => e.includes('@'))
   ));
 
   const formattedEmails = format === 'comma'
@@ -59,9 +59,9 @@ export const ColdOutreachModal: React.FC<Props> = ({
               <Mail className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Cold Email Outreach & Bulk Export</h2>
+              <h2 className="text-base font-bold text-white">Discovered Contacts & Verified Export</h2>
               <p className="text-xs text-slate-400">
-                {validEmails.length} verified recruitment and career email addresses extracted
+                {validEmails.length} public email addresses retrieved directly from company websites
               </p>
             </div>
           </div>
@@ -81,7 +81,7 @@ export const ColdOutreachModal: React.FC<Props> = ({
           {/* Format selector */}
           <div className="flex items-center justify-between">
             <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
-              Email List Format
+              Email Output Format
             </label>
             <div className="flex bg-slate-950 rounded-lg p-0.5 border border-slate-800 text-[11px]">
               <button
@@ -120,7 +120,7 @@ export const ColdOutreachModal: React.FC<Props> = ({
               readOnly
               value={formattedEmails}
               rows={7}
-              placeholder="No emails extracted yet. Run the crawler on your selected cities."
+              placeholder="No public emails retrieved yet. Execute discovery and enable website scanning."
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-emerald-300 leading-relaxed focus:outline-none resize-none selection:bg-emerald-500/30 selection:text-white"
             />
           </div>
@@ -128,7 +128,7 @@ export const ColdOutreachModal: React.FC<Props> = ({
           {/* Copy Button */}
           <div className="flex items-center justify-between pt-1">
             <span className="text-[11px] text-slate-400">
-              Ready for pasting into Gmail, Outlook, or Thunderbird BCC field
+              Extracted only from public website HTML (never synthesized)
             </span>
             <button
               type="button"
@@ -144,16 +144,16 @@ export const ColdOutreachModal: React.FC<Props> = ({
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  <span>Copy All ({validEmails.length})</span>
+                  <span>Copy Discovered ({validEmails.length})</span>
                 </>
               )}
             </button>
           </div>
 
-          {/* Bulk File Export Options */}
+          {/* Bulk File Export */}
           <div className="pt-4 border-t border-slate-800">
             <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block mb-2.5">
-              Export Company Records
+              Verified Records Export (Includes Place IDs & Source URLs)
             </label>
 
             <div className="grid grid-cols-2 gap-3">
@@ -168,7 +168,7 @@ export const ColdOutreachModal: React.FC<Props> = ({
                 </div>
                 <div>
                   <div className="font-semibold text-white text-xs">Spreadsheet (CSV)</div>
-                  <div className="text-[10px] text-slate-400">Excel / Google Sheets export</div>
+                  <div className="text-[10px] text-slate-400">Full audit trail & Place IDs</div>
                 </div>
               </button>
 
@@ -182,8 +182,8 @@ export const ColdOutreachModal: React.FC<Props> = ({
                   <FileJson className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="font-semibold text-white text-xs">Raw Data (JSON)</div>
-                  <div className="text-[10px] text-slate-400">Full scraped attributes</div>
+                  <div className="font-semibold text-white text-xs">Raw Records (JSON)</div>
+                  <div className="text-[10px] text-slate-400">Complete structured schema</div>
                 </div>
               </button>
             </div>

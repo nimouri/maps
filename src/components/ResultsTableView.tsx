@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Building, 
+  Building2, 
   MapPin, 
   Mail, 
   Phone, 
@@ -12,32 +12,43 @@ import {
   Send, 
   Eye, 
   Search, 
-  SlidersHorizontal,
-  FileText
+  FileText,
+  ShieldCheck,
+  AlertCircle,
+  HelpCircle,
+  CheckCircle2,
+  Globe
 } from 'lucide-react';
-import { ScrapedCompany } from '../types/scraper';
+import { ScrapedCompany, EmailDiscoveryStatus, AusbildungVerificationStatus } from '../types/scraper';
 
 interface Props {
   companies: ScrapedCompany[];
   onSelectCompany: (company: ScrapedCompany) => void;
   onGeneratePitch: (company: ScrapedCompany) => void;
+  onScanEmail: (company: ScrapedCompany) => void;
+  onVerifyJobs: (company: ScrapedCompany) => void;
   selectedIds: string[];
   onToggleSelect: (id: string) => void;
   onSelectAll: (all: boolean) => void;
+  scanningIds: string[];
 }
 
 export const ResultsTableView: React.FC<Props> = ({
   companies,
   onSelectCompany,
   onGeneratePitch,
+  onScanEmail,
+  onVerifyJobs,
   selectedIds,
   onToggleSelect,
-  onSelectAll
+  onSelectAll,
+  scanningIds
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterWebsiteOnly, setFilterWebsiteOnly] = useState(false);
   const [filterEmailOnly, setFilterEmailOnly] = useState(false);
   const [filterAusbildungOnly, setFilterAusbildungOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<'city' | 'name' | 'rating' | 'openings'>('city');
+  const [sortBy, setSortBy] = useState<'city' | 'name' | 'rating' | 'status'>('city');
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   const handleCopyEmail = (email: string, e: React.MouseEvent) => {
@@ -53,25 +64,177 @@ export const ResultsTableView: React.FC<Props> = ({
         const matchesSearch = !searchQuery.trim() || 
           c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           c.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.industry.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          c.openings.some(o => o.title.toLowerCase().includes(searchQuery.toLowerCase()));
+          c.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.placeTypes.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
 
-        const matchesEmail = !filterEmailOnly || !!c.careerEmail;
-        const matchesAusbildung = !filterAusbildungOnly || c.hasAusbildung;
+        const matchesWebsite = !filterWebsiteOnly || Boolean(c.website);
+        const matchesEmail = !filterEmailOnly || Boolean(c.careerEmail);
+        const matchesAusbildung = !filterAusbildungOnly || c.ausbildungStatus === 'confirmed_listing';
 
-        return matchesSearch && matchesEmail && matchesAusbildung;
+        return matchesSearch && matchesWebsite && matchesEmail && matchesAusbildung;
       })
       .sort((a, b) => {
         if (sortBy === 'city') return a.city.localeCompare(b.city);
         if (sortBy === 'name') return a.name.localeCompare(b.name);
         if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
-        if (sortBy === 'openings') return b.openings.length - a.openings.length;
+        if (sortBy === 'status') {
+          const scoreA = (a.ausbildungStatus === 'confirmed_listing' ? 2 : 0) + (a.careerEmail ? 1 : 0);
+          const scoreB = (b.ausbildungStatus === 'confirmed_listing' ? 2 : 0) + (b.careerEmail ? 1 : 0);
+          return scoreB - scoreA;
+        }
         return 0;
       });
-  }, [companies, searchQuery, filterEmailOnly, filterAusbildungOnly, sortBy]);
+  }, [companies, searchQuery, filterWebsiteOnly, filterEmailOnly, filterAusbildungOnly, sortBy]);
 
   const allFilteredSelected = filteredCompanies.length > 0 && 
     filteredCompanies.every(c => selectedIds.includes(c.id));
+
+  const renderEmailBadge = (company: ScrapedCompany) => {
+    const isScanning = scanningIds.includes(`${company.id}-email`);
+
+    if (isScanning) {
+      return (
+        <span className="text-[11px] text-amber-400 font-mono animate-pulse flex items-center gap-1">
+          <span>Probing website...</span>
+        </span>
+      );
+    }
+
+    if (company.emailStatus === 'website_recruitment_email' && company.careerEmail) {
+      return (
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-emerald-400 font-medium text-xs">
+              {company.careerEmail}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => handleCopyEmail(company.careerEmail!, e)}
+              className="p-0.5 text-slate-400 hover:text-white"
+              title="Copy verified recruitment email"
+            >
+              {copiedEmail === company.careerEmail ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+          <span className="text-[10px] text-emerald-500/80 block">
+            Recruitment-specific email on website
+          </span>
+        </div>
+      );
+    }
+
+    if (company.emailStatus === 'website_general_email' && company.careerEmail) {
+      return (
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-sky-300 font-medium text-xs">
+              {company.careerEmail}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => handleCopyEmail(company.careerEmail!, e)}
+              className="p-0.5 text-slate-400 hover:text-white"
+              title="Copy general website email"
+            >
+              {copiedEmail === company.careerEmail ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            </button>
+          </div>
+          <span className="text-[10px] text-slate-400 block">
+            General website contact (unverified mailbox)
+          </span>
+        </div>
+      );
+    }
+
+    if (company.emailStatus === 'no_email_found') {
+      return (
+        <div className="space-y-0.5">
+          <span className="text-slate-500 text-[11px]">No public email found</span>
+          <span className="text-[10px] text-slate-600 block">Contact form only or unlisted</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-slate-500 text-[11px]">Not verified</span>
+        {company.website && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onScanEmail(company);
+            }}
+            className="text-[10px] text-sky-400 hover:text-sky-300 underline"
+          >
+            Scan site
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderAusbildungBadge = (company: ScrapedCompany) => {
+    const isVerifying = scanningIds.includes(`${company.id}-jobs`);
+
+    if (isVerifying) {
+      return (
+        <span className="text-[11px] text-purple-400 font-mono animate-pulse">
+          Verifying career page...
+        </span>
+      );
+    }
+
+    if (company.ausbildungStatus === 'confirmed_listing') {
+      return (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/30 flex items-center gap-1">
+              <CheckCircle2 className="w-2.5 h-2.5 text-amber-400" />
+              Ausbildung Confirmed
+            </span>
+          </div>
+          {company.confirmedListings.length > 0 && (
+            <div className="text-[11px] font-medium text-slate-200 line-clamp-1" title={company.confirmedListings[0].title}>
+              {company.confirmedListings[0].title}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (company.ausbildungStatus === 'unverified') {
+      return (
+        <div className="space-y-0.5">
+          <div className="text-[11px] text-slate-400 flex items-center gap-1">
+            <HelpCircle className="w-3 h-3 text-slate-500" />
+            <span>Not verified</span>
+          </div>
+          <span className="text-[10px] text-slate-500 block">
+            Google Maps presence only (no confirmed vacancy)
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-slate-500 text-[11px]">Not verified</span>
+        {company.website && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onVerifyJobs(company);
+            }}
+            className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+          >
+            Verify page
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
@@ -85,7 +248,7 @@ export const ResultsTableView: React.FC<Props> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search companies, cities, roles, keywords..."
+              placeholder="Filter by business name, city, street, place types..."
               className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -96,11 +259,21 @@ export const ResultsTableView: React.FC<Props> = ({
           <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
             <input
               type="checkbox"
+              checked={filterWebsiteOnly}
+              onChange={(e) => setFilterWebsiteOnly(e.target.checked)}
+              className="rounded border-slate-700 bg-slate-900 text-amber-500 text-xs"
+            />
+            <span>Has Website</span>
+          </label>
+
+          <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+            <input
+              type="checkbox"
               checked={filterEmailOnly}
               onChange={(e) => setFilterEmailOnly(e.target.checked)}
               className="rounded border-slate-700 bg-slate-900 text-amber-500 text-xs"
             />
-            <span>With Email Only</span>
+            <span>Email Discovered</span>
           </label>
 
           <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
@@ -110,7 +283,7 @@ export const ResultsTableView: React.FC<Props> = ({
               onChange={(e) => setFilterAusbildungOnly(e.target.checked)}
               className="rounded border-slate-700 bg-slate-900 text-amber-500 text-xs"
             />
-            <span>Ausbildung Only</span>
+            <span>Confirmed Ausbildung Only</span>
           </label>
 
           <div className="flex items-center gap-1 text-slate-400">
@@ -122,8 +295,8 @@ export const ResultsTableView: React.FC<Props> = ({
             >
               <option value="city">City (A-Z)</option>
               <option value="name">Company Name</option>
-              <option value="rating">Rating</option>
-              <option value="openings">Most Openings</option>
+              <option value="rating">Google Rating</option>
+              <option value="status">Verification Status</option>
             </select>
           </div>
 
@@ -146,20 +319,20 @@ export const ResultsTableView: React.FC<Props> = ({
                   className="rounded border-slate-700 bg-slate-900 text-amber-500"
                 />
               </th>
-              <th className="py-3 px-4 font-semibold">Company & Location</th>
-              <th className="py-3 px-4 font-semibold">Verified Career Email</th>
-              <th className="py-3 px-4 font-semibold">Discovered Openings</th>
-              <th className="py-3 px-4 font-semibold">Maps Rating</th>
-              <th className="py-3 px-4 text-right font-semibold">Outreach & Dossier</th>
+              <th className="py-3 px-4 font-semibold">Registered Place & Place ID</th>
+              <th className="py-3 px-4 font-semibold">Contact & Email Status</th>
+              <th className="py-3 px-4 font-semibold">Ausbildung / Vacancy Status</th>
+              <th className="py-3 px-4 font-semibold">Google Maps Rating</th>
+              <th className="py-3 px-4 text-right font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
             {filteredCompanies.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-12 text-center text-slate-500">
-                  <Building className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm font-medium">No company records match your current filter.</p>
-                  <p className="text-xs text-slate-400 mt-1">Adjust your filters or run the crawler to discover new employers.</p>
+                  <Building2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm font-medium">No verified Google Places records found.</p>
+                  <p className="text-xs text-slate-400 mt-1">Execute a search across selected cities to fetch real businesses.</p>
                 </td>
               </tr>
             ) : (
@@ -184,31 +357,29 @@ export const ResultsTableView: React.FC<Props> = ({
                       />
                     </td>
 
-                    {/* Company & Location Info */}
+                    {/* Company & Place ID */}
                     <td className="py-3.5 px-4">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-white text-sm hover:text-amber-400 transition-colors">
                             {company.name}
                           </span>
-                          {company.hasAusbildung && (
-                            <span className="text-[10px] font-semibold text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
-                              Ausbildungsbetrieb
-                            </span>
-                          )}
                         </div>
 
                         {/* Unboxed clean metadata (zero-pill rule) */}
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
                           <span className="text-slate-200 font-medium">{company.city}</span>
                           <span aria-hidden="true">·</span>
                           <span>{company.address}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="text-slate-400">{company.industry}</span>
+                        </div>
+
+                        {/* Provider Place ID Tag */}
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
+                          <span>Place ID: {company.placeId}</span>
                         </div>
 
                         <div className="flex items-center gap-3 text-[11px] pt-0.5">
-                          {company.website && (
+                          {company.website ? (
                             <a
                               href={company.website}
                               target="_blank"
@@ -219,25 +390,16 @@ export const ResultsTableView: React.FC<Props> = ({
                               <span>Website</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
+                          ) : (
+                            <span className="text-slate-500">Website: Not verified</span>
                           )}
-                          {company.careerUrl && company.careerUrl !== company.website && (
-                            <a
-                              href={company.careerUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-amber-400 hover:text-amber-300 flex items-center gap-1"
-                            >
-                              <span>Karriereportal</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
+
                           <a
                             href={company.mapsUrl}
                             target="_blank"
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                            className="text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium"
                           >
                             <span>Google Maps</span>
                             <ExternalLink className="w-2.5 h-2.5" />
@@ -246,86 +408,51 @@ export const ResultsTableView: React.FC<Props> = ({
                       </div>
                     </td>
 
-                    {/* Verified Career Email */}
+                    {/* Email & Contact */}
                     <td className="py-3.5 px-4">
-                      {company.careerEmail ? (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-emerald-300 text-xs font-medium">
-                              {company.careerEmail}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => handleCopyEmail(company.careerEmail!, e)}
-                              className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
-                              title="Copy email to clipboard"
-                            >
-                              {copiedEmail === company.careerEmail ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                      <div className="space-y-1">
+                        {renderEmailBadge(company)}
+                        {company.phone ? (
+                          <div className="flex items-center gap-1 text-[11px] text-slate-400">
+                            <Phone className="w-3 h-3 text-slate-500" />
+                            <span>{company.phone}</span>
                           </div>
-                          {company.phone && (
-                            <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                              <Phone className="w-3 h-3 text-slate-400" />
-                              <span>{company.phone}</span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-slate-400 italic text-[11px]">
-                          Contact form on career portal
-                        </div>
-                      )}
+                        ) : (
+                          <div className="text-[10px] text-slate-500">
+                            Phone: Not verified
+                          </div>
+                        )}
+                      </div>
                     </td>
 
-                    {/* Discovered Openings */}
+                    {/* Ausbildung / Job Verification */}
                     <td className="py-3.5 px-4 max-w-xs">
-                      {company.openings.length > 0 ? (
-                        <div className="space-y-1">
-                          <div className="font-medium text-slate-200 line-clamp-1">
-                            {company.openings[0].title}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                            <span className="text-amber-400 font-medium">{company.openings[0].jobType}</span>
-                            {company.openings.length > 1 && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span>+{company.openings.length - 1} more role{company.openings.length > 2 ? 's' : ''}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-slate-400 text-[11px]">Unsolicited (Initiativ)</span>
-                      )}
+                      {renderAusbildungBadge(company)}
                     </td>
 
                     {/* Google Maps Rating */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      {company.rating ? (
+                      {typeof company.rating === 'number' ? (
                         <div className="flex items-center gap-1.5">
                           <div className="flex items-center text-amber-400">
                             <Star className="w-3.5 h-3.5 fill-current" />
                             <span className="ml-1 font-bold text-white text-xs">{company.rating.toFixed(1)}</span>
                           </div>
-                          <span className="text-slate-400 text-[11px]">({company.reviewsCount || 0})</span>
+                          <span className="text-slate-400 text-[11px]">({company.reviewsCount ?? '0'})</span>
                         </div>
                       ) : (
-                        <span className="text-slate-400 text-[11px]">-</span>
+                        <span className="text-slate-500 text-[11px]">No rating</span>
                       )}
                     </td>
 
-                    {/* Outreach Actions */}
+                    {/* Actions */}
                     <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
                           onClick={() => onGeneratePitch(company)}
                           className="px-2.5 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-medium text-xs rounded-md border border-amber-500/30 transition-colors flex items-center gap-1"
-                          title="Generate German Application / Initiativbewerbung"
+                          title="Generate honest German application letter"
                         >
                           <Send className="w-3 h-3" />
                           <span>Bewerbung</span>
@@ -334,7 +461,7 @@ export const ResultsTableView: React.FC<Props> = ({
                           type="button"
                           onClick={() => onSelectCompany(company)}
                           className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md border border-slate-700 transition-colors"
-                          title="View Full Company Profile Dossier"
+                          title="View Verified Dossier"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
