@@ -126,16 +126,13 @@ export async function searchOpenStreetMap(params: {
       mapsUrl: mapsUrl,
       placeTypes: [item.class, item.type].filter(Boolean),
       businessStatus: 'OPERATIONAL',
-      providerAttribution: 'OpenStreetMap (Nominatim)',
+      providerAttribution: 'OpenStreetMap — not Google',
       discoveredAt: new Date().toISOString(),
 
       emailStatus: directEmail ? 'website_general_email' : 'not_checked',
       careerEmail: directEmail,
       emailSourceUrl: directEmail ? `https://www.openstreetmap.org/${item.osm_type}/${item.osm_id}` : undefined,
-      allDiscoveredEmails: directEmail ? [directEmail] : [],
-
-      ausbildungStatus: 'unverified',
-      confirmedListings: []
+      allDiscoveredEmails: directEmail ? [directEmail] : []
     });
   }
 

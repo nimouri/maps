@@ -8,7 +8,6 @@ import { CITIES_DATABASE } from './src/data/citiesData';
 import { searchPlacesText, PlacesServiceError } from './src/server/placesService';
 import { searchOpenStreetMap } from './src/server/osmService';
 import { discoverCompanyEmail } from './src/server/emailDiscoveryService';
-import { verifyCompanyJobs } from './src/server/jobVerificationService';
 import { CountryCode } from './src/types/scraper';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -255,29 +254,6 @@ app.post('/api/places/discover-email', rateLimiter, async (req: Request, res: Re
   }
 });
 
-// Job & Ausbildung Verification Endpoint
-app.post('/api/places/verify-jobs', rateLimiter, async (req: Request, res: Response) => {
-  try {
-    const { websiteUrl, targetQuery } = req.body;
-
-    if (!websiteUrl || typeof websiteUrl !== 'string') {
-      res.status(400).json({ error: 'websiteUrl is required for job verification.', code: 'INVALID_ARGUMENT' });
-      return;
-    }
-
-    const verificationResult = await verifyCompanyJobs(websiteUrl, targetQuery);
-    res.json({
-      success: true,
-      result: verificationResult
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      error: error.message || 'Job verification failed',
-      code: 'JOB_VERIFICATION_ERROR'
-    });
-  }
-});
-
 // Truthful Application Draft Generator
 app.post('/api/application/draft', async (req: Request, res: Response) => {
   try {
@@ -286,7 +262,6 @@ app.post('/api/application/draft', async (req: Request, res: Response) => {
       city, 
       roleTitle, 
       jobType = 'ausbildung', 
-      isAusbildungConfirmed = false,
       candidateNotes = '' 
     } = req.body;
 
@@ -296,7 +271,7 @@ app.post('/api/application/draft', async (req: Request, res: Response) => {
     }
 
     const isAusbildung = jobType === 'ausbildung';
-    const isProactive = !isAusbildungConfirmed;
+    const isProactive = true;
 
     const subject = isAusbildung
       ? `${isProactive ? 'Initiativbewerbung:' : 'Bewerbung um'} Ausbildungsplatz als ${roleTitle} - [Vorname Nachname]`

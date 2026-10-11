@@ -11,20 +11,6 @@ export type EmailDiscoveryStatus =
   | 'no_email_found'             // Crawled official pages, no public email found
   | 'not_checked';               // Contact discovery not yet executed
 
-export type AusbildungVerificationStatus = 
-  | 'confirmed_listing'          // Verified real apprenticeship posting found on official career portal
-  | 'unverified'                 // Company exists on Maps, but NO active Ausbildung listing verified
-  | 'not_checked';               // Job verification not yet executed
-
-export interface ConfirmedJobListing {
-  title: string;
-  jobType: 'Ausbildung' | 'Vollzeit' | 'Teilzeit' | 'Praktikum' | 'Duales Studium';
-  sourceUrl: string;
-  verifiedAt: string;
-  deadline?: string;
-  snippet?: string;
-}
-
 export interface CityInfo {
   name: string;
   country: CountryCode;
@@ -46,11 +32,9 @@ export interface ScrapeFilters {
   searchEngine?: SearchEnginePreference;
   mustHaveWebsite: boolean;
   mustHaveEmail: boolean;
-  confirmedAusbildungOnly: boolean;
   minRating: number;
   maxResultsPerCity: number;
   autoDiscoverEmails: boolean;
-  autoVerifyJobs: boolean;
 }
 
 export interface ScrapedCompany {
@@ -59,7 +43,7 @@ export interface ScrapedCompany {
   name: string;
   city: string;
   state: string;
-  address: string;
+  address?: string;
   country: CountryCode;
   website?: string;
   phone?: string;
@@ -79,19 +63,13 @@ export interface ScrapedCompany {
   emailSourceUrl?: string;
   emailDiscoveredAt?: string;
   allDiscoveredEmails: string[];
-
-  // Real Job & Ausbildung Verification Pipeline
-  ausbildungStatus: AusbildungVerificationStatus;
-  confirmedListings: ConfirmedJobListing[];
-  careerPortalUrl?: string;
-  jobVerificationNotes?: string;
 }
 
 export interface CrawlerLogEntry {
   id: string;
   timestamp: string;
   level: 'info' | 'success' | 'warn' | 'error';
-  step: 'places_search' | 'contact_discovery' | 'job_verification' | 'complete';
+  step: 'places_search' | 'contact_discovery' | 'complete';
   city: string;
   companyName?: string;
   message: string;
@@ -104,7 +82,6 @@ export interface CrawlerStats {
   citiesCompleted: number;
   placesFound: number;
   emailsDiscovered: number;
-  confirmedAusbildung: number;
   currentCity: string;
   currentCompany: string;
   currentStep: string;

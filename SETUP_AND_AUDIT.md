@@ -16,10 +16,8 @@ This application has been audited and repaired to meet strict data integrity sta
    - FieldMask used: `places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount,places.websiteUri,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri,places.types,places.businessStatus`.
    - Deduplication enforced by provider `place.id`.
 
-3. **Separation of Google Maps Presence from Ausbildung Verification**:
-   - Being registered on Google Maps is **not** treated as evidence of an active apprenticeship vacancy.
-   - A company is marked `Ausbildung Confirmed` **only** when an attributable vacancy is confirmed on an official company career page.
-   - Otherwise, the company is explicitly labeled `Not verified`.
+3. **Separation of Google Maps Presence from Job Offerings**:
+   - Being registered on Google Maps is strictly business entity discovery.
 
 4. **Honest Email Discovery Pipeline**:
    - No email addresses are ever guessed from domain names (e.g., `bewerbung@domain.de` synthesis is completely banned).
@@ -69,10 +67,7 @@ APP_URL="http://localhost:3000"
 - Probes official public pages for physically present emails.
 - Stores `primaryEmail`, `sourceUrl`, and `discoveredAt`.
 
-### 3. `POST /api/places/verify-jobs`
-- Inspects company career portals (`/karriere`, `/jobs`, `/ausbildung`) for confirmed job listings matching the target query or vocational training criteria.
-
-### 4. `POST /api/application/draft`
+### 3. `POST /api/application/draft`
 - Generates a truthful German application letter. If no confirmed vacancy exists, it structures the letter as an honest proactive inquiry (*Initiativbewerbung*).
 
 ---

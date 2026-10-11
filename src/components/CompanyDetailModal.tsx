@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
 import { 
   X, 
-  Building2, 
   MapPin, 
-  Mail, 
+  Globe, 
   Phone, 
+  Mail, 
   ExternalLink, 
   Star, 
-  Send, 
-  Copy, 
   Check, 
-  GraduationCap, 
-  FileText, 
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
+  Copy, 
+  Send,
+  Building2,
   ShieldCheck,
   Search
 } from 'lucide-react';
@@ -25,18 +20,14 @@ interface Props {
   company: ScrapedCompany | null;
   onClose: () => void;
   onScanEmail: (company: ScrapedCompany) => void;
-  onVerifyJobs: (company: ScrapedCompany) => void;
   isScanningEmail: boolean;
-  isVerifyingJobs: boolean;
 }
 
 export const CompanyDetailModal: React.FC<Props> = ({
   company,
   onClose,
   onScanEmail,
-  onVerifyJobs,
-  isScanningEmail,
-  isVerifyingJobs
+  isScanningEmail
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'details' | 'pitch'>('details');
@@ -49,94 +40,101 @@ export const CompanyDetailModal: React.FC<Props> = ({
 
   if (!company) return null;
 
+  const isOsm = company.providerAttribution?.toLowerCase().includes('openstreetmap') || company.providerAttribution?.toLowerCase().includes('osm');
+  const sourceLabel = isOsm ? 'OpenStreetMap — not Google' : 'Google Maps (extension)';
+
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const isConfirmed = company.ausbildungStatus === 'confirmed_listing';
-  const roleTitle = targetRole || (company.confirmedListings[0]?.title) || 'Fachkraft / Ausbildung';
+  const roleTitle = targetRole || 'Fachkraft / Ausbildung';
 
   const defaultLetter = `Sehr geehrte Damen und Herren,
 liebes Recruiting-Team von ${company.name},
 
 mit großem Interesse verfolge ich die Aktivitäten Ihres Unternehmens am Standort ${company.city}.
 
-${isConfirmed
-  ? `Hiermit bewerbe ich mich bei Ihnen mit großem Engagement für die Position als „${roleTitle}“.`
-  : `Hiermit bewerbe ich mich bei Ihnen initiativ für eine Position bzw. einen Ausbildungsplatz im Bereich „${roleTitle}“. Da ich Ihr Unternehmen als attraktiven Arbeitgeber in unserer Region schätze, möchte ich mich Ihnen gerne proaktiv vorstellen.`}
+Hiermit bewerbe ich mich bei Ihnen initiativ für eine Position bzw. einen Ausbildungsplatz im Bereich „${roleTitle}“. Da ich Ihr Unternehmen als attraktiven Arbeitgeber in unserer Region schätze, möchte ich mich Ihnen gerne proaktiv vorstellen.
 
 Ich zeichne mich durch Zuverlässigkeit, strukturierte Arbeitsweise und hohe Lernbereitschaft aus. Gerne möchte ich Ihr Team tatkräftig unterstützen.
 
-Meine vollständigen Bewerbungsunterlagen habe ich dieser Nachricht beigefügt. Über die Gelegenheit eines persönlichen Vorstellungsgesprächs oder Probearbeitstages freue ich mich sehr.
+Meine vollständigen Unterlagen lasse ich Ihnen auf Anfrage sehr gerne zukommen. Über eine Einladung zu einem persönlichen Gespräch oder einem Probearbeitstag freue ich mich sehr.
 
 Mit freundlichen Grüßen,
 ${candidateName || '[Ihr Vorname Nachname]'}
 ${candidatePhone || '[Ihre Telefonnummer]'}
 ${candidateEmail || '[Ihre E-Mail-Adresse]'}`;
 
-  const mailtoLink = company.careerEmail 
-    ? `mailto:${company.careerEmail}?subject=${encodeURIComponent(`${isConfirmed ? 'Bewerbung' : 'Initiativbewerbung'}: ${roleTitle} - ${candidateName || 'Bewerber'}`)}&body=${encodeURIComponent(defaultLetter)}`
+  const mailtoLink = company.careerEmail
+    ? `mailto:${company.careerEmail}?subject=${encodeURIComponent(`Initiativbewerbung: ${roleTitle} - ${candidateName || '[Name]'}`)}&body=${encodeURIComponent(defaultLetter)}`
     : '#';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl my-8">
-        
-        {/* Top Header */}
-        <div className="bg-slate-950 p-5 border-b border-slate-800 flex items-start justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+      <div 
+        className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="p-5 bg-slate-950 border-b border-slate-800 flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-lg font-bold text-white">{company.name}</h2>
-              {isConfirmed ? (
-                <span className="text-xs font-semibold text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-amber-400" />
-                  Ausbildung Confirmed
-                </span>
-              ) : (
-                <span className="text-xs font-medium text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-                  Ausbildung: Not verified
-                </span>
-              )}
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-amber-400" />
+              <h2 className="text-lg font-bold text-white leading-tight">
+                {company.name}
+              </h2>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
               <MapPin className="w-3.5 h-3.5 text-amber-400" />
               <span>{company.address || '—'}</span>
               <span aria-hidden="true">·</span>
-              <span className="text-slate-300 font-medium">{company.city}</span>
+              <span>{company.city}, {company.country}</span>
+              <span aria-hidden="true">·</span>
+              <span className={`inline-flex items-center gap-1 font-semibold ${isOsm ? 'text-emerald-400' : 'text-sky-400'}`}>
+                <Globe className="w-3 h-3" />
+                {sourceLabel}
+              </span>
             </div>
-            <div className="text-[11px] text-slate-500 font-mono">
-              Provider Place ID: {company.placeId}
+            <div className="flex items-center gap-2 pt-1 font-mono text-[10px] text-slate-500">
+              <span>Place ID: {company.placeId}</span>
+              {typeof company.lat === 'number' && typeof company.lng === 'number' && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>Coords: {company.lat.toFixed(4)}, {company.lng.toFixed(4)}</span>
+                </>
+              )}
             </div>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Controls */}
-        <div className="bg-slate-950/60 px-5 border-b border-slate-800 flex gap-4 text-xs font-medium">
+        {/* Tab Switcher */}
+        <div className="px-5 border-b border-slate-800 bg-slate-950/50 flex gap-4 text-xs">
           <button
             type="button"
             onClick={() => setActiveTab('details')}
-            className={`py-3 border-b-2 transition-colors ${
+            className={`py-2.5 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'details'
                 ? 'border-amber-400 text-amber-400 font-semibold'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Verified Place Dossier
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Verified Dossier</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('pitch')}
-            className={`py-3 border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-2.5 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'pitch'
                 ? 'border-amber-400 text-amber-400 font-semibold'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -203,7 +201,7 @@ ${candidateEmail || '[Ihre E-Mail-Adresse]'}`;
 
                   {/* Phone */}
                   <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                    <span className="text-[11px] text-slate-400 block mb-1">Telephone (Google Places)</span>
+                    <span className="text-[11px] text-slate-400 block mb-1">Telephone</span>
                     <span className="text-slate-200 font-mono text-xs">{company.phone || 'Not verified'}</span>
                   </div>
                 </div>
@@ -236,68 +234,33 @@ ${candidateEmail || '[Ihre E-Mail-Adresse]'}`;
                 </div>
               </div>
 
-              {/* Ausbildung & Career Verification Audit Trail */}
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                    Ausbildung Verification Audit
-                  </h3>
-                  {company.website && (
-                    <button
-                      type="button"
-                      disabled={isVerifyingJobs}
-                      onClick={() => onVerifyJobs(company)}
-                      className="text-xs text-amber-400 hover:text-amber-300 underline disabled:opacity-50"
-                    >
-                      {isVerifyingJobs ? 'Verifying career portal...' : 'Inspect career page for listings'}
-                    </button>
-                  )}
+              {/* Data Provenance & Source Label */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 space-y-2">
+                <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Data Source & Provenance
+                </h3>
+                <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-slate-300 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Provider Source:</span>
+                    <span className={`font-semibold ${isOsm ? 'text-emerald-400' : 'text-sky-400'}`}>
+                      {sourceLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Place Identifier:</span>
+                    <span className="font-mono text-[11px] text-slate-300 truncate max-w-xs">{company.placeId}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Discovery Timestamp:</span>
+                    <span className="text-slate-400">{new Date(company.discoveredAt).toLocaleString()}</span>
+                  </div>
                 </div>
-
-                {company.ausbildungStatus === 'confirmed_listing' && company.confirmedListings.length > 0 ? (
-                  <div className="space-y-2">
-                    {company.confirmedListings.map((listing, idx) => (
-                      <div key={idx} className="p-3 bg-slate-900 rounded-lg border border-slate-800 space-y-1.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="font-semibold text-white text-xs">{listing.title}</span>
-                          <span className="text-[10px] text-amber-400 font-medium">{listing.jobType}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                          <a 
-                            href={listing.sourceUrl} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="text-sky-400 hover:underline flex items-center gap-1"
-                          >
-                            <span>Attributable Source</span>
-                            <ExternalLink className="w-2.5 h-2.5" />
-                          </a>
-                          {listing.deadline && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span>Frist: {listing.deadline}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 text-slate-400 text-xs space-y-1">
-                    <p className="font-medium text-slate-300">
-                      Status: {company.ausbildungStatus === 'unverified' ? 'Not verified' : 'Not yet checked'}
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      Company is a registered Google Maps entity. A Google Maps listing alone is not evidence of active Ausbildung offerings without an attributable career vacancy.
-                    </p>
-                  </div>
-                )}
               </div>
 
               {/* Google Maps Profile Stats */}
               <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Google Maps Rating</span>
+                  <span className="text-[11px] text-slate-400 block">Rating</span>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {typeof company.rating === 'number' ? (
                       <>
@@ -330,7 +293,7 @@ ${candidateEmail || '[Ihre E-Mail-Adresse]'}`;
                     Personalize Application
                   </h3>
                   <span className="text-[11px] text-slate-400">
-                    {isConfirmed ? 'Application for confirmed listing' : 'Initiativbewerbung (proactive)'}
+                    Initiativbewerbung (proactive)
                   </span>
                 </div>
 

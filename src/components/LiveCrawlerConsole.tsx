@@ -127,7 +127,7 @@ export const LiveCrawlerConsole: React.FC<Props> = ({
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
           {/* Step 1 */}
           <div className={`p-2.5 rounded-lg border transition-all ${
             stats.currentStep === 'places_search'
@@ -172,21 +172,6 @@ export const LiveCrawlerConsole: React.FC<Props> = ({
               Probe official website pages (/impressum, /kontakt)
             </p>
           </div>
-
-          {/* Step 4 */}
-          <div className={`p-2.5 rounded-lg border transition-all ${
-            stats.currentStep === 'job_verification'
-              ? 'bg-purple-500/10 border-purple-500/40 text-purple-300 shadow-sm shadow-purple-500/10'
-              : 'bg-slate-900/60 border-slate-800 text-slate-400'
-          }`}>
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold mb-1">
-              <FileCheck2 className="w-3 h-3 text-purple-400" />
-              4. Career Page Verification
-            </div>
-            <p className="text-[10px] text-slate-400">
-              Inspect career portals for attributable Ausbildung vacancies
-            </p>
-          </div>
         </div>
       </div>
 
@@ -221,8 +206,6 @@ export const LiveCrawlerConsole: React.FC<Props> = ({
                     ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                     : log.step === 'places_search'
                     ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                    : log.step === 'job_verification'
-                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                     : 'bg-slate-800 text-slate-400'
                 }`}>
                   {log.step}

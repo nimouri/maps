@@ -1,28 +1,84 @@
 // MapCareer Extension Service Worker (Manifest V3)
 
-// Origins allowed to trigger scrape jobs
-const ALLOWED_ORIGIN_PATTERNS = [
-  /^http:\/\/localhost:3000\/?/,
-  /^http:\/\/127\.0\.0\.1:3000\/?/,
-  /^https:\/\/YOUR-DOMAIN-HERE\/?/,
-  /^https:\/\/.*\.run\.app\/?/,
-  /^https:\/\/.*\.aistudio\.google\.com\/?/
-];
+// Exact allowed origins only (strictly no wildcards, no run.app, no aistudio.google.com)
+const ALLOWED_ORIGINS = new Set([
+  'http://localhost:3000',
+  'https://YOUR-DOMAIN-HERE'
+]);
 
-function isOriginAllowed(url) {
-  if (!url) return false;
-  return ALLOWED_ORIGIN_PATTERNS.some(pattern => pattern.test(url));
+function isOriginAllowed(rawUrl) {
+  if (!rawUrl) return false;
+  try {
+    const origin = new URL(rawUrl).origin;
+    return ALLOWED_ORIGINS.has(origin);
+  } catch (_) {
+    return false;
+  }
 }
 
-// Track pending scrape jobs by temporary window/tab id
+// Track pending scrape jobs by tab id
 const pendingJobs = new Map();
 
+// Helper to safely clean up a job's window and state
+function cleanupJob(job) {
+  if (job.timeoutHandle) {
+    clearTimeout(job.timeoutHandle);
+    job.timeoutHandle = null;
+  }
+  if (job.tabId) {
+    pendingJobs.delete(job.tabId);
+  }
+  if (job.windowId) {
+    chrome.windows.remove(job.windowId, () => {
+      // Ignore error if already closed
+      if (chrome.runtime.lastError) {}
+    });
+    job.windowId = null;
+  }
+}
+
+// Window closure handler
+chrome.windows.onRemoved.addListener((closedWindowId) => {
+  for (const [tabId, job] of pendingJobs.entries()) {
+    if (job.windowId === closedWindowId && !job.isCompleted) {
+      job.isCompleted = true;
+      if (job.timeoutHandle) clearTimeout(job.timeoutHandle);
+      pendingJobs.delete(tabId);
+      job.sendResponse({
+        success: false,
+        error: 'Scraper window was closed'
+      });
+    }
+  }
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Listen for progress messages from content-maps.js to extend watchdog timeout
+  if (request.action === 'SCRAPE_PROGRESS') {
+    const senderTabId = sender.tab?.id;
+    if (senderTabId && pendingJobs.has(senderTabId)) {
+      const job = pendingJobs.get(senderTabId);
+      if (!job.isCompleted) {
+        if (job.timeoutHandle) clearTimeout(job.timeoutHandle);
+        job.timeoutHandle = setTimeout(() => {
+          if (job.isCompleted) return;
+          job.isCompleted = true;
+          cleanupJob(job);
+          job.sendResponse({
+            success: false,
+            error: 'Consent page, captcha or blocked by Google'
+          });
+        }, job.baseTimeoutMs);
+      }
+    }
+    return;
+  }
+
   if (request.action === 'SCRAPE_MAPS') {
     // Check sender origin
     const senderUrl = sender.tab?.url || sender.url || '';
     if (!isOriginAllowed(senderUrl)) {
-      console.warn('[MapCareer Background] Rejected unauthorized scrape request from:', senderUrl);
+      console.warn('[MapCareer Background] Rejected unauthorized scrape request from origin:', senderUrl);
       sendResponse({ success: false, error: 'Unauthorized origin.' });
       return false;
     }
@@ -30,12 +86,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const { query, city, country, maxResults = 10 } = request;
     const targetUrl = `https://www.google.com/maps/search/${encodeURIComponent(`${query} in ${city}, ${country}`)}`;
 
-    console.log(`[MapCareer Background] Launching popup window for "${query} in ${city}" (max: ${maxResults})...`);
+    console.log(`[MapCareer Background] Launching popup for "${query} in ${city}" (maxResults: ${maxResults})...`);
 
-    // Calculate watchdog timeout scaling with maxResults (min 20s, +1.5s per requested item, capped at 60s)
-    const timeoutDuration = Math.min(Math.max(20000, 15000 + maxResults * 1500), 60000);
+    // timeout = min(30s + 2s * maxResults, 150s)
+    const baseTimeoutMs = Math.min((30 + 2 * maxResults) * 1000, 150000);
 
-    // Open popup window to avoid Chrome background-tab throttling
+    // Open popup window to avoid background tab throttling
     chrome.windows.create(
       {
         url: targetUrl,
@@ -53,56 +109,51 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const windowId = createdWindow.id;
         const tabId = createdWindow.tabs[0].id;
 
-        let isCompleted = false;
-
-        const cleanup = () => {
-          if (windowId) {
-            chrome.windows.remove(windowId, () => {
-              if (chrome.runtime.lastError) {
-                // Window might already be closed by user
-              }
-            });
-          }
-          pendingJobs.delete(tabId);
+        const job = {
+          tabId,
+          windowId,
+          baseTimeoutMs,
+          isCompleted: false,
+          sendResponse,
+          timeoutHandle: null
         };
 
-        // Watchdog timer
-        const timeoutHandle = setTimeout(() => {
-          if (isCompleted) return;
-          isCompleted = true;
+        // Watchdog timeout handler
+        job.timeoutHandle = setTimeout(() => {
+          if (job.isCompleted) return;
+          job.isCompleted = true;
           chrome.tabs.onUpdated.removeListener(onUpdated);
-          cleanup();
-          sendResponse({
+          cleanupJob(job);
+          job.sendResponse({
             success: false,
-            error: `Google Maps scraping timed out after ${Math.round(timeoutDuration / 1000)}s.`
+            error: 'Consent page, captcha or blocked by Google'
           });
-        }, timeoutDuration);
+        }, baseTimeoutMs);
 
-        pendingJobs.set(tabId, { windowId, timeoutHandle });
+        pendingJobs.set(tabId, job);
 
         function onUpdated(updatedTabId, changeInfo) {
           if (updatedTabId === tabId && changeInfo.status === 'complete') {
             chrome.tabs.onUpdated.removeListener(onUpdated);
 
-            // Wait for dynamic React/JS render inside Google Maps tab
+            // Wait for Google Maps dynamic app hydration
             setTimeout(() => {
-              if (isCompleted) return;
+              if (job.isCompleted) return;
 
               chrome.tabs.sendMessage(tabId, { action: 'EXECUTE_SCRAPE', maxResults }, (response) => {
-                if (isCompleted) return;
-                isCompleted = true;
-                clearTimeout(timeoutHandle);
-                cleanup();
+                if (job.isCompleted) return;
+                job.isCompleted = true;
+                cleanupJob(job);
 
-                if (chrome.runtime.lastError) {
-                  sendResponse({
+                if (chrome.runtime.lastError || !response) {
+                  job.sendResponse({
                     success: false,
-                    error: chrome.runtime.lastError.message || 'Scraping communication error.'
+                    error: 'Consent page, captcha or blocked by Google'
                   });
                   return;
                 }
 
-                sendResponse(response || { success: false, companies: [] });
+                job.sendResponse(response);
               });
             }, 2500);
           }
@@ -112,6 +163,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     );
 
-    return true; // Keep asynchronous message port open
+    return true; // Keep message channel open for async response
   }
 });

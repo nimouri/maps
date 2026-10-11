@@ -432,15 +432,6 @@ export const SearchConfigPanel: React.FC<Props> = ({
                   />
                   <span>Scan public website for emails</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={filters.autoVerifyJobs}
-                    onChange={(e) => onChangeFilters({ ...filters, autoVerifyJobs: e.target.checked })}
-                    className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
-                  />
-                  <span>Inspect career page for Ausbildung</span>
-                </label>
               </div>
 
               {/* Data Reliability Filters */}
@@ -466,16 +457,6 @@ export const SearchConfigPanel: React.FC<Props> = ({
                     className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
                   />
                   <span>Discovered email must be present</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={filters.confirmedAusbildungOnly}
-                    onChange={(e) => onChangeFilters({ ...filters, confirmedAusbildungOnly: e.target.checked })}
-                    className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 bg-slate-900"
-                  />
-                  <span>Confirmed Ausbildung only (Strict)</span>
                 </label>
               </div>
 

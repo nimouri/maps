@@ -235,9 +235,7 @@ export async function searchPlacesText(params: PlacesSearchParams): Promise<{
 
       // Strict initial statuses
       emailStatus: 'not_checked',
-      allDiscoveredEmails: [],
-      ausbildungStatus: 'not_checked',
-      confirmedListings: []
+      allDiscoveredEmails: []
     };
 
     verifiedCompanies.push(company);

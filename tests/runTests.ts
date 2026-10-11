@@ -1,22 +1,41 @@
 /**
- * Automated Test Suite for Google Places API (New) Discovery & Verification Engine
+ * Automated Test Suite for MapCareer Discovery & Verification Engine
  * 
  * Verifies:
- * 1. Successful Places API response parsing
+ * 1. Successful Places API response parsing & honest fields
  * 2. Zero search results (empty response, no mock fallback)
  * 3. Invalid API key error handling (explicit error, no mock fallback)
  * 4. Missing API key handling
  * 5. Deduplication of duplicate Place IDs
  * 6. Missing contact details (properly undefined, no fabricated data)
- * 7. Missing coordinates handling
- * 8. Strict ban on fabricated fallback data
- * 9. Email discovery (no domain guessing, requires actual text match)
- * 10. Job verification (attributable source URL, no fake vacancies)
+ * 7. Missing coordinates handling (no synthetic coordinates)
+ * 8. Email discovery (no domain guessing, requires actual text match)
+ * 9. No email found handling
+ * 10. Missing website parameter handling
+ * 11. Coordinate extraction from URL (!3d...!4d...)
+ * 12. Secondary coordinate extraction fallback (@lat,lng)
+ * 13. Rejection of street address as phone number
+ * 14. Rejection of short prefix ("+49") as phone number
+ * 15. Acceptance of valid phone number ("+49 89 123456")
+ * 16. Acceptance of valid German street address
+ * 17. Rejection of opening hours as address
+ * 18. Extension manifest does not contain "<all_urls>"
+ * 19. Extension manifest does not contain broad host permissions
+ * 20. Place ID extraction from URL (!1s0x...:0x...)
  */
 
+import fs from 'fs';
+import path from 'path';
 import { searchPlacesText } from '../src/server/placesService';
 import { discoverCompanyEmail } from '../src/server/emailDiscoveryService';
-import { verifyCompanyJobs } from '../src/server/jobVerificationService';
+import { 
+  parseCoordinates, 
+  parsePlaceId, 
+  parsePhone, 
+  parseAddress,
+  isCandidatePhone,
+  isCandidateAddress
+} from '../src/utils/mapsParsing';
 
 let passed = 0;
 let failed = 0;
@@ -38,7 +57,7 @@ async function runTests() {
   const originalFetch = global.fetch;
 
   // ----------------------------------------------------
-  // TEST SUITE 1: Google Places API (New) Handling
+  // TEST SUITE 1: Google Places API Service
   // ----------------------------------------------------
   console.log('[Suite 1: Google Places API Service]');
 
@@ -78,7 +97,6 @@ async function runTests() {
     assert(comp.mapsUrl === 'https://maps.google.com/?cid=123456789', '1. Real provider Google Maps URL is returned');
     assert(comp.providerAttribution === 'Google Places API (New)', '1. Provider attribution is explicitly set');
     assert(comp.emailStatus === 'not_checked', '1. Email status starts as unverified (not fabricated)');
-    assert(comp.ausbildungStatus === 'not_checked', '1. Ausbildung status starts as unverified');
   }
 
   // Test 2: Zero search results handling
@@ -166,7 +184,6 @@ async function runTests() {
           id: 'PLACE_MINIMAL',
           displayName: { text: 'Sparse Company GmbH' },
           formattedAddress: 'Hauptstr. 1, 10115 Berlin'
-          // No websiteUri, no phone, no rating
         }
       ]
     };
@@ -209,7 +226,7 @@ async function runTests() {
       biasCoords: { lat: 48.1351, lng: 11.5820 }
     });
 
-    assert(result.companies[0].lat === 48.1351, '7. Uses city center bias coordinate when location is absent');
+    assert(result.companies[0].lat === 48.1351, '7. Uses bias coordinate when location is absent');
   }
 
   // ----------------------------------------------------
@@ -217,7 +234,7 @@ async function runTests() {
   // ----------------------------------------------------
   console.log('\n[Suite 2: Email Discovery Service]');
 
-  // Test 8: Extract email only from real HTML text (distinguishing recruitment vs general)
+  // Test 8: Extract email only from real HTML text
   {
     const mockHtml = `
       <html>
@@ -262,49 +279,78 @@ async function runTests() {
   }
 
   // ----------------------------------------------------
-  // TEST SUITE 3: Job & Ausbildung Verification Pipeline
+  // TEST SUITE 3: Maps Parsing Module & Extension Security
   // ----------------------------------------------------
-  console.log('\n[Suite 3: Job Verification Service]');
+  console.log('\n[Suite 3: Maps Parsing & Extension Security]');
 
-  // Test 11: Real Ausbildung posting confirmed in page text
+  // Test 11: Real coordinates parsed from URL containing !3d48.1!4d11.5
   {
-    const mockCareerHtml = `
-      <html>
-        <body>
-          <h2>Aktuelle Ausbildungsangebote</h2>
-          <ul>
-            <li>Ausbildung zur Pflegefachkraft (m/w/d) - Bewerbungsfrist: 31.08.2026</li>
-            <li>Pflegedienstleitung (w/m/d)</li>
-          </ul>
-        </body>
-      </html>
-    `;
-
-    global.fetch = async () => new Response(mockCareerHtml, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' }
-    });
-
-    const result = await verifyCompanyJobs('https://www.klinik.de', 'Pflegefachkraft');
-    assert(result.status === 'confirmed_listing', '11. Ausbildung confirmed when vacancy is in page text');
-    assert(result.listings.length > 0, '11. Extracted real listing');
-    assert(result.listings[0].title.includes('Pflegefachkraft'), '11. Title matches genuine posting');
-    assert(result.listings[0].deadline === '31.08.2026', '11. Extracted published application deadline');
-    assert(result.listings[0].sourceUrl.includes('klinik.de'), '11. Attributable source URL recorded');
+    const testUrl = 'https://www.google.com/maps/place/Demo/@48.1,11.5,15z/data=!3m1!4b1!4m6!3m5!1s0x479e75f:0x123!8m2!3d48.1!4d11.5!16s';
+    const coords = parseCoordinates(testUrl);
+    assert(coords.lat === 48.1 && coords.lng === 11.5, '11. Coordinates parsed from URL containing !3d48.1!4d11.5');
   }
 
-  // Test 12: No Ausbildung listings found
+  // Test 12: Secondary coordinates fallback from @lat,lng format
   {
-    const mockNoJobsHtml = '<html><body><h2>Karriere</h2><p>Aktuell haben wir leider keine offenen Stellen.</p></body></html>';
+    const testUrlFallback = 'https://www.google.com/maps/place/Munich/@48.137154,11.576124,14z/data=!4m2!3m1';
+    const coords = parseCoordinates(testUrlFallback);
+    assert(coords.lat === 48.137154 && coords.lng === 11.576124, '12. Secondary coordinates parsed from @lat,lng format');
+  }
 
-    global.fetch = async () => new Response(mockNoJobsHtml, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html' }
-    });
+  // Test 13: "Musterstr. 101 20095 Hamburg" must NOT be accepted as phone
+  {
+    const phoneResult = parsePhone('Musterstr. 101 20095 Hamburg');
+    const isPhone = isCandidatePhone('Musterstr. 101 20095 Hamburg');
+    assert(phoneResult === undefined && !isPhone, '13. "Musterstr. 101 20095 Hamburg" must NOT be accepted as phone');
+  }
 
-    const result = await verifyCompanyJobs('https://www.noj вакансии.de', 'Pflegefachkraft');
-    assert(result.status === 'unverified', '12. Correctly sets status to unverified when no vacancies exist');
-    assert(result.listings.length === 0, '12. No listings returned (no fabricated postings)');
+  // Test 14: Short prefix "+49" must NOT be accepted as phone (< 8 digits)
+  {
+    const phoneResult = parsePhone('+49');
+    const isPhone = isCandidatePhone('+49');
+    assert(phoneResult === undefined && !isPhone, '14. Short prefix "+49" must NOT be accepted as phone');
+  }
+
+  // Test 15: Valid phone like "+49 89 123456" IS accepted
+  {
+    const phoneResult = parsePhone('+49 89 123456');
+    const isPhone = isCandidatePhone('+49 89 123456');
+    assert(phoneResult === '+49 89 123456' && isPhone, '15. Valid phone "+49 89 123456" is accepted');
+  }
+
+  // Test 16: Valid German street address parsed correctly
+  {
+    const addressResult = parseAddress('Musterstraße 42, 80331 München');
+    const isAddr = isCandidateAddress('Musterstraße 42, 80331 München');
+    assert(addressResult === 'Musterstraße 42, 80331 München' && isAddr, '16. Valid German street address is recognized');
+  }
+
+  // Test 17: Opening hours not accepted as address
+  {
+    const addrResult = parseAddress('Geöffnet bis 18:00 Uhr');
+    const isAddr = isCandidateAddress('Geöffnet bis 18:00 Uhr');
+    assert(addrResult === undefined && !isAddr, '17. Opening hours string is NOT accepted as address');
+  }
+
+  // Test 18: manifest.json contains NO "<all_urls>"
+  {
+    const manifestPath = path.resolve(process.cwd(), 'public/extension/manifest.json');
+    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+    assert(!manifestContent.includes('<all_urls>'), '18. manifest.json contains NO "<all_urls>"');
+  }
+
+  // Test 19: manifest.json contains NO "*://*/*"
+  {
+    const manifestPath = path.resolve(process.cwd(), 'public/extension/manifest.json');
+    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+    assert(!manifestContent.includes('*://*/*'), '19. manifest.json contains NO "*://*/*"');
+  }
+
+  // Test 20: Place ID correctly extracted from Google place link (!1s0x...:0x...)
+  {
+    const mapsLink = 'https://www.google.com/maps/place/Test/data=!4m7!3m6!1s0x479e75f9a1234567:0xabcdef1234567890!8m2!3d48.1!4d11.5';
+    const placeId = parsePlaceId(mapsLink);
+    assert(placeId === '0x479e75f9a1234567:0xabcdef1234567890', '20. Place ID correctly extracted from Google place link');
   }
 
   // Restore fetch

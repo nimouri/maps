@@ -54,12 +54,12 @@ export const ResultsMapView: React.FC<Props> = ({
 
     const bounds = L.latLngBounds([]);
 
-    const createCustomIcon = (isAusbildungConfirmed: boolean) => {
+    const createCustomIcon = (isOsm: boolean) => {
       return L.divIcon({
         className: 'custom-map-marker',
         html: `
           <div style="
-            background: ${isAusbildungConfirmed ? '#f59e0b' : '#0284c7'};
+            background: ${isOsm ? '#10b981' : '#0284c7'};
             color: #ffffff;
             width: 26px;
             height: 26px;
@@ -73,7 +73,7 @@ export const ResultsMapView: React.FC<Props> = ({
             border: 2px solid #ffffff;
             cursor: pointer;
           ">
-            ${isAusbildungConfirmed ? '★' : '●'}
+            ${isOsm ? 'OSM' : 'G'}
           </div>
         `,
         iconSize: [26, 26],
@@ -105,9 +105,11 @@ export const ResultsMapView: React.FC<Props> = ({
 
       bounds.extend([lat, lng]);
 
-      const isConfirmed = comp.ausbildungStatus === 'confirmed_listing';
+      const isOsm = comp.providerAttribution?.toLowerCase().includes('openstreetmap') || comp.providerAttribution?.toLowerCase().includes('osm');
+      const sourceLabel = isOsm ? 'OpenStreetMap — not Google' : 'Google Maps (extension)';
+
       const marker = L.marker([lat, lng], {
-        icon: createCustomIcon(isConfirmed)
+        icon: createCustomIcon(Boolean(isOsm))
       });
 
       const popupContent = document.createElement('div');
@@ -120,19 +122,17 @@ export const ResultsMapView: React.FC<Props> = ({
           <div style="font-size: 10px; color: #64748b; font-family: monospace; margin-bottom: 4px;">
             Place ID: ${comp.placeId}
           </div>
-          <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">
-            ${comp.address}
+          <div style="font-size: 11px; color: #475569; margin-bottom: 4px;">
+            ${comp.address || '—'}
+          </div>
+          <div style="font-size: 10px; color: #0284c7; font-weight: 600; margin-bottom: 6px;">
+            Source: ${sourceLabel}
           </div>
           ${comp.careerEmail ? `
             <div style="font-size: 11px; color: #059669; font-family: monospace; font-weight: 600; margin-bottom: 6px;">
               ✉ ${comp.careerEmail}
             </div>
           ` : '<div style="font-size: 10px; color: #94a3b8; margin-bottom: 6px;">Email: Not verified</div>'}
-          <div style="font-size: 11px; margin-bottom: 8px;">
-            ${isConfirmed 
-              ? '<span style="color: #b45309; font-weight: 700;">✓ Ausbildung Confirmed</span>' 
-              : '<span style="color: #64748b;">Ausbildung: Not verified</span>'}
-          </div>
           <div style="display: flex; gap: 8px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
             <a href="${comp.mapsUrl}" target="_blank" style="
               font-size: 11px;

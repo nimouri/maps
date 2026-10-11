@@ -1,114 +1,148 @@
 // MapCareer Google Maps In-Page Scraper
 // Executes inside the live Google Maps tab in the user's browser
 
+// update here if Google changes its HTML
+const SELECTORS = {
+  feed: 'div[role="feed"]',
+  card: 'div.Nv2PK',
+  cardLink: 'a.hfpxzc',
+  name: '.qBF1Pd, div.fontHeadlineSmall',
+  rating: 'span.MW4etd',
+  reviewsCount: 'span.UY7F9',
+  infoLines: '.W4Efsd',
+  websiteLink: 'a[data-value="Website"], a.lcr4fd[href^="http"]',
+  endOfListMarker: 'span.HlvSq, .PbZDve',
+  consentAgreeButton: 'form[action*="consent"] button, button[aria-label*="Alle akzeptieren"], button[aria-label*="Accept all"]'
+};
+
 (function() {
   console.log('[MapCareer Maps Scraper] Activated on Google Maps tab.');
 
   // Handle Google GDPR/Cookie consent popup if present
-  function dismissConsent() {
-    const consentButtons = [
-      'button[aria-label*="Alle akzeptieren"]',
-      'button[aria-label*="Accept all"]',
-      'button[aria-label*="Tout accepter"]',
-      'form[action*="consent"] button',
-      'button.VfPpkd-LgbsSe[jsname]'
-    ];
-
-    for (const selector of consentButtons) {
-      const btn = document.querySelector(selector);
-      if (btn && btn.offsetParent !== null) {
-        btn.click();
-        console.log('[MapCareer] Dismissed cookie consent dialog.');
-        break;
+  function handleConsentDialog() {
+    try {
+      const consentBtn = document.querySelector(SELECTORS.consentAgreeButton);
+      if (consentBtn) {
+        console.log('[MapCareer] Dismissing Google consent prompt...');
+        consentBtn.click();
       }
-    }
+    } catch (_) {}
   }
 
-  // Parses coordinates from URL string:
-  // Primary pattern from card data: /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
-  // Secondary fallback pattern: /@(-?\d+\.\d+),(-?\d+\.\d+)/
+  // Parse accurate coordinates from URL
   function parseCoordinates(url) {
-    if (!url) {
-      console.warn('[MapCareer] Coordinate parse skipped: empty URL');
-      return null;
+    if (!url || typeof url !== 'string') {
+      return { lat: undefined, lng: undefined };
     }
 
+    // Primary: /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/
     const dataMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
     if (dataMatch) {
-      return {
-        lat: parseFloat(dataMatch[1]),
-        lng: parseFloat(dataMatch[2])
-      };
+      const lat = parseFloat(dataMatch[1]);
+      const lng = parseFloat(dataMatch[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { lat, lng };
+      }
     }
 
+    // Secondary fallback: @lat,lng
     const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
     if (atMatch) {
-      return {
-        lat: parseFloat(atMatch[1]),
-        lng: parseFloat(atMatch[2])
-      };
+      const lat = parseFloat(atMatch[1]);
+      const lng = parseFloat(atMatch[2]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { lat, lng };
+      }
     }
 
     console.warn('[MapCareer] Could not parse coordinates from Maps URL:', url);
-    return null;
+    return { lat: undefined, lng: undefined };
   }
 
-  // Parses Google Place ID from the result link: !1s(0x[0-9a-fA-F]+:[0-9a-fA-F]+)
-  // or falls back to full URL
+  // Extract real place ID from place link (!1s0x...:0x...)
   function parsePlaceId(url) {
-    if (!url) return null;
-    const match = url.match(/!1s(0x[0-9a-fA-F]+:[0-9a-fA-F]+)/);
+    if (!url || typeof url !== 'string') return '';
+    const match = url.match(/!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/);
     if (match) {
       return match[1];
-    }
-    // Also support ChIJ format if present
-    const chijMatch = url.match(/!1s(ChIJ[A-Za-z0-9_-]+)/);
-    if (chijMatch) {
-      return chijMatch[1];
     }
     return url;
   }
 
-  // Scrapes the results feed
-  async function scrapeFeed(maxResults = 10) {
-    dismissConsent();
+  // Split text into tokens by newlines and '·'
+  function tokenizeText(text) {
+    if (!text || typeof text !== 'string') return [];
+    return text
+      .split(/[\n\r·]+/)
+      .map(t => t.trim())
+      .filter(Boolean);
+  }
 
-    // Check if Google Maps redirected directly to a single result
-    const singleHeadline = document.querySelector('h1.DUwDvf');
-    if (singleHeadline && !document.querySelector('div[role="feed"]')) {
-      const name = singleHeadline.innerText.trim();
-      const currentUrl = window.location.href;
-      const coords = parseCoordinates(currentUrl);
-      const placeId = parsePlaceId(currentUrl) || currentUrl;
-      const addressBtn = document.querySelector('button[data-item-id="address"]');
-      const phoneBtn = document.querySelector('button[data-item-id*="phone"]');
-      const websiteLink = document.querySelector('a[data-item-id="authority"]');
-      const ratingSpan = document.querySelector('span.MW4etd');
-      const reviewsSpan = document.querySelector('span.UY7F9');
-
-      const addressText = addressBtn?.innerText.trim();
-
-      return [{
-        id: placeId,
-        placeId: placeId,
-        name: name,
-        address: addressText || undefined,
-        phone: phoneBtn?.innerText.trim() || undefined,
-        website: websiteLink?.href || undefined,
-        rating: ratingSpan ? parseFloat(ratingSpan.innerText.replace(',', '.')) : undefined,
-        reviewsCount: reviewsSpan ? parseInt(reviewsSpan.innerText.replace(/[^0-9]/g, ''), 10) : undefined,
-        lat: coords?.lat,
-        lng: coords?.lng,
-        mapsUrl: currentUrl,
-        placeTypes: [],
-        providerAttribution: 'Google Maps (Live Browser Bridge)'
-      }];
+  // Check if token qualifies as a phone number
+  function isPhoneToken(token) {
+    if (!token) return false;
+    // Accept only a token made ONLY of digits, spaces, + ( ) / -
+    if (!/^[0-9\s+()/-]+$/.test(token)) {
+      return false;
     }
+    // With at least 8 digits
+    const digitsOnly = token.replace(/\D/g, '');
+    return digitsOnly.length >= 8;
+  }
 
-    // Wait for the feed to appear
+  // Check if token qualifies as an address
+  function isAddressToken(token) {
+    if (!token) return false;
+    // Accept only a token matching /^[^\d]{3,}\s\d+\s?\w?(,|$)/
+    if (!/^[^\d]{3,}\s\d+\s?\w?(,|$)/.test(token)) {
+      return false;
+    }
+    // Must not be a phone
+    if (isPhoneToken(token)) {
+      return false;
+    }
+    // Must not be opening hours, rating, or google text
+    const lower = token.toLowerCase();
+    if (
+      lower.includes('geöffnet') ||
+      lower.includes('geschlossen') ||
+      lower.includes('open') ||
+      lower.includes('closed') ||
+      lower.includes('uhr') ||
+      lower.includes('hours') ||
+      lower.includes('sterne') ||
+      lower.includes('star') ||
+      lower.includes('google maps') ||
+      /^\d([.,]\d)?$/.test(token)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // Check if end-of-list marker is visible
+  function isEndOfList(feed) {
+    if (document.querySelector(SELECTORS.endOfListMarker)) return true;
+    const feedText = feed.innerText || '';
+    if (
+      feedText.includes('Ende der Liste') ||
+      feedText.includes("You've reached the end of the list") ||
+      feedText.includes('Sie haben das Ende der Liste erreicht')
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Main scraper function
+  async function scrapeFeed(maxResults = 10) {
+    handleConsentDialog();
+
+    // Locate results feed
     let feed = null;
     for (let attempts = 0; attempts < 15; attempts++) {
-      feed = document.querySelector('div[role="feed"]');
+      handleConsentDialog();
+      feed = document.querySelector(SELECTORS.feed);
       if (feed) break;
       await new Promise(r => setTimeout(r, 400));
     }
@@ -119,21 +153,36 @@
     }
 
     // Scroll feed to load items up to maxResults
-    let scrollTries = 0;
-    while (scrollTries < 12) {
-      const currentCards = feed.querySelectorAll('div.Nv2PK, a.hfpxzc');
+    let lastCount = 0;
+    let stagnantScrolls = 0;
+
+    while (true) {
+      const currentCards = feed.querySelectorAll(SELECTORS.card);
       if (currentCards.length >= maxResults) break;
+      if (isEndOfList(feed)) break;
+
+      if (currentCards.length === lastCount) {
+        stagnantScrolls++;
+        if (stagnantScrolls >= 4) {
+          console.log('[MapCareer] Card count has not grown for 4 consecutive scrolls, stopping.');
+          break;
+        }
+      } else {
+        stagnantScrolls = 0;
+        lastCount = currentCards.length;
+        try {
+          chrome.runtime.sendMessage({ action: 'SCRAPE_PROGRESS', currentCount: currentCards.length });
+        } catch (_) {}
+      }
 
       feed.scrollTop = feed.scrollHeight;
-      await new Promise(r => setTimeout(r, 600));
-      scrollTries++;
-
-      // Check for end of list marker
-      if (document.querySelector('span.HlvSq')) break;
+      // Wait a random 900-1500 ms between scrolls
+      const waitMs = Math.floor(Math.random() * (1500 - 900 + 1)) + 900;
+      await new Promise(r => setTimeout(r, waitMs));
     }
 
     // Extract cards
-    const cards = feed.querySelectorAll('div.Nv2PK');
+    const cards = feed.querySelectorAll(SELECTORS.card);
     const results = [];
     const seenPlaceIds = new Set();
 
@@ -141,50 +190,62 @@
       if (results.length >= maxResults) break;
 
       // Extract Name
-      const nameEl = card.querySelector('.qBF1Pd, div.fontHeadlineSmall');
+      const nameEl = card.querySelector(SELECTORS.name);
       const name = nameEl?.innerText.trim();
       if (!name) continue;
 
       // Extract Link & Place ID
-      const linkEl = card.querySelector('a.hfpxzc');
+      const linkEl = card.querySelector(SELECTORS.cardLink);
       const mapsUrl = linkEl?.href || window.location.href;
       const placeId = parsePlaceId(mapsUrl) || mapsUrl;
 
-      // Deduplicate results by genuine Place ID
+      // Deduplicate results by Place ID
       if (seenPlaceIds.has(placeId)) continue;
       seenPlaceIds.add(placeId);
 
-      // Extract Coords
+      // Extract Coordinates (no default fallback)
       const coords = parseCoordinates(mapsUrl);
 
       // Extract Rating & Reviews
-      const ratingEl = card.querySelector('span.MW4etd');
-      const reviewsEl = card.querySelector('span.UY7F9');
+      const ratingEl = card.querySelector(SELECTORS.rating);
+      const reviewsEl = card.querySelector(SELECTORS.reviewsCount);
       const rating = ratingEl ? parseFloat(ratingEl.innerText.replace(',', '.')) : undefined;
       const reviewsCount = reviewsEl ? parseInt(reviewsEl.innerText.replace(/[^0-9]/g, ''), 10) : undefined;
 
-      // Extract metadata lines (address, phone, type)
-      const textLines = Array.from(card.querySelectorAll('.W4Efsd')).map(el => el.innerText.trim()).filter(Boolean);
-      const combinedInfo = textLines.join(' · ');
+      // Extract metadata tokens
+      const textLines = Array.from(card.querySelectorAll(SELECTORS.infoLines))
+        .map(el => el.innerText.trim())
+        .filter(Boolean);
+      const allTokens = tokenizeText(textLines.join('\n'));
 
       // Extract Website if link exists on card
-      const websiteEl = card.querySelector('a[data-value="Website"], a.lcr4fd[href^="http"]');
+      const websiteEl = card.querySelector(SELECTORS.websiteLink);
       const website = websiteEl?.href || undefined;
 
-      // Extract Phone number if present in text lines
-      const phoneMatch = combinedInfo.match(/(?:\+49|0049|0[1-9][0-9\s/-]{5,20})/);
-      const phone = phoneMatch ? phoneMatch[0].trim() : undefined;
+      // Phone: accept only a token made ONLY of digits, spaces, + ( ) / - with >= 8 digits
+      let phone = undefined;
+      for (const token of allTokens) {
+        if (isPhoneToken(token)) {
+          phone = token;
+          break;
+        }
+      }
 
-      // Extract Address from line; if not readable leave undefined
-      const addressLine = textLines.find(line => /\d+/.test(line) && !line.includes('·') && !line.includes('€')) || combinedInfo.split('·')[1]?.trim();
-      const cleanAddress = addressLine && !addressLine.includes('Google Maps') ? addressLine : undefined;
+      // Address: accept only a token matching /^[^\d]{3,}\s\d+\s?\w?(,|$)/ that is not phone, opening hours or rating
+      let address = undefined;
+      for (const token of allTokens) {
+        if (isAddressToken(token)) {
+          address = token;
+          break;
+        }
+      }
 
       results.push({
         id: placeId,
         placeId: placeId,
         name: name,
-        address: cleanAddress,
-        phone: phone,
+        address: address, // undefined if cannot be read
+        phone: phone,     // undefined if cannot be read
         website: website,
         rating: isNaN(rating) ? undefined : rating,
         reviewsCount: isNaN(reviewsCount) ? undefined : reviewsCount,
@@ -192,7 +253,10 @@
         lng: coords?.lng,
         mapsUrl: mapsUrl,
         placeTypes: [],
-        providerAttribution: 'Google Maps (Live Browser Bridge)'
+        providerAttribution: 'Google Maps (extension)',
+        discoveredAt: new Date().toISOString(),
+        emailStatus: 'not_checked',
+        allDiscoveredEmails: []
       });
     }
 

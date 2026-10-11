@@ -48,11 +48,9 @@ export default function App() {
     searchEngine: 'auto',
     mustHaveWebsite: false,
     mustHaveEmail: false,
-    confirmedAusbildungOnly: false,
     minRating: 3.0,
     maxResultsPerCity: 5,
-    autoDiscoverEmails: true,
-    autoVerifyJobs: true
+    autoDiscoverEmails: true
   });
 
   // Active View
@@ -75,7 +73,6 @@ export default function App() {
     citiesCompleted: 0,
     placesFound: 0,
     emailsDiscovered: 0,
-    confirmedAusbildung: 0,
     currentCity: '',
     currentCompany: '',
     currentStep: 'idle',
@@ -167,53 +164,6 @@ export default function App() {
       }
     } catch (err: any) {
       addLog('warn', 'contact_discovery', company.city, `Contact scan error: ${err.message}`, company.name);
-    } finally {
-      setScanningIds(prev => prev.filter(k => k !== scanKey));
-    }
-  };
-
-  // On-demand Job Verification for a single company
-  const handleVerifyJobs = async (company: ScrapedCompany) => {
-    if (!company.website) return;
-    const scanKey = `${company.id}-jobs`;
-    setScanningIds(prev => [...prev, scanKey]);
-
-    addLog('info', 'job_verification', company.city, `Inspecting career portal for ${company.name}...`, company.name, company.website);
-
-    try {
-      const res = await fetch('/api/places/verify-jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ websiteUrl: company.website, targetQuery: filters.jobQuery })
-      });
-      const data = await res.json();
-
-      if (data.success && data.result) {
-        const result = data.result;
-        const isConfirmed = result.status === 'confirmed_listing';
-
-        setCompanies(prev => prev.map(c => {
-          if (c.id === company.id) {
-            return {
-              ...c,
-              ausbildungStatus: result.status,
-              confirmedListings: result.listings,
-              careerPortalUrl: result.careerPortalUrl,
-              jobVerificationNotes: result.notes
-            };
-          }
-          return c;
-        }));
-
-        if (isConfirmed) {
-          addLog('success', 'job_verification', company.city, `Ausbildung Confirmed: ${result.listings.length} verified listings on career portal.`, company.name, result.careerPortalUrl);
-          setStats(s => ({ ...s, confirmedAusbildung: s.confirmedAusbildung + 1 }));
-        } else {
-          addLog('info', 'job_verification', company.city, `No active Ausbildung listing confirmed on official career page.`, company.name);
-        }
-      }
-    } catch (err: any) {
-      addLog('warn', 'job_verification', company.city, `Career verification error: ${err.message}`, company.name);
     } finally {
       setScanningIds(prev => prev.filter(k => k !== scanKey));
     }
@@ -353,41 +303,6 @@ export default function App() {
             }
           }
 
-          // 2. Job / Ausbildung Verification if enabled
-          if (filters.autoVerifyJobs && place.website) {
-            setStats(s => ({ ...s, currentStep: 'job_verification' }));
-            try {
-              const jobRes = await fetch('/api/places/verify-jobs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ websiteUrl: place.website, targetQuery: filters.jobQuery })
-              });
-              const jobData = await jobRes.json();
-              if (jobData.success && jobData.result) {
-                const r = jobData.result;
-                setCompanies(prev => prev.map(c => {
-                  if (c.id === place.id) {
-                    return {
-                      ...c,
-                      ausbildungStatus: r.status,
-                      confirmedListings: r.listings,
-                      careerPortalUrl: r.careerPortalUrl,
-                      jobVerificationNotes: r.notes
-                    };
-                  }
-                  return c;
-                }));
-
-                if (r.status === 'confirmed_listing') {
-                  setStats(s => ({ ...s, confirmedAusbildung: s.confirmedAusbildung + 1 }));
-                  addLog('success', 'job_verification', cityName, `Ausbildung Confirmed on career page: ${r.listings[0]?.title}`, place.name, r.careerPortalUrl);
-                }
-              }
-            } catch (err: any) {
-              addLog('warn', 'job_verification', cityName, `Job verification failed: ${err.message}`, place.name);
-            }
-          }
-
           await sleepWithCancel(200);
         }
 
@@ -434,7 +349,6 @@ export default function App() {
       citiesCompleted: 0,
       placesFound: 0,
       emailsDiscovered: 0,
-      confirmedAusbildung: 0,
       currentCity: '',
       currentCompany: '',
       currentStep: 'idle',
@@ -461,11 +375,12 @@ export default function App() {
     }
   };
 
-  // Export to CSV with full audit trail
+  // Export to CSV with full audit trail and provider source
   const handleExportCsv = () => {
     if (companies.length === 0) return;
 
     const headers = [
+      'Source',
       'Google Place ID',
       'Business Name',
       'City',
@@ -478,28 +393,31 @@ export default function App() {
       'Reviews Count',
       'Discovered Email',
       'Email Status',
-      'Email Source URL',
-      'Ausbildung Verification Status',
-      'Confirmed Job Titles'
+      'Email Source URL'
     ];
 
-    const rows = companies.map(c => [
-      `"${c.placeId}"`,
-      `"${c.name.replace(/"/g, '""')}"`,
-      `"${c.city}"`,
-      `"${c.address.replace(/"/g, '""')}"`,
-      `"${c.country}"`,
-      `"${c.mapsUrl}"`,
-      `"${c.website || ''}"`,
-      `"${c.phone || ''}"`,
-      c.rating ?? '',
-      c.reviewsCount ?? '',
-      `"${c.careerEmail || ''}"`,
-      `"${c.emailStatus}"`,
-      `"${c.emailSourceUrl || ''}"`,
-      `"${c.ausbildungStatus}"`,
-      `"${c.confirmedListings.map(l => l.title).join(' | ').replace(/"/g, '""')}"`
-    ]);
+    const rows = companies.map(c => {
+      const sourceLabel = c.providerAttribution?.toLowerCase().includes('openstreetmap') || c.providerAttribution?.toLowerCase().includes('osm')
+        ? 'OpenStreetMap — not Google'
+        : 'Google Maps (extension)';
+
+      return [
+        `"${sourceLabel}"`,
+        `"${c.placeId}"`,
+        `"${c.name.replace(/"/g, '""')}"`,
+        `"${c.city}"`,
+        `"${c.address ? c.address.replace(/"/g, '""') : '-'}"`,
+        `"${c.country}"`,
+        `"${c.mapsUrl}"`,
+        `"${c.website || ''}"`,
+        `"${c.phone || ''}"`,
+        c.rating ?? '',
+        c.reviewsCount ?? '',
+        `"${c.careerEmail || ''}"`,
+        `"${c.emailStatus}"`,
+        `"${c.emailSourceUrl || ''}"`
+      ];
+    });
 
     const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -619,7 +537,6 @@ export default function App() {
               onSelectCompany={(comp) => setActiveModalCompany(comp)}
               onGeneratePitch={(comp) => setActiveModalCompany(comp)}
               onScanEmail={handleScanEmail}
-              onVerifyJobs={handleVerifyJobs}
               selectedIds={selectedIds}
               onToggleSelect={handleToggleSelect}
               onSelectAll={handleSelectAll}
@@ -644,9 +561,7 @@ export default function App() {
           company={currentModalCompany}
           onClose={() => setActiveModalCompany(null)}
           onScanEmail={handleScanEmail}
-          onVerifyJobs={handleVerifyJobs}
           isScanningEmail={scanningIds.includes(`${currentModalCompany.id}-email`)}
-          isVerifyingJobs={scanningIds.includes(`${currentModalCompany.id}-jobs`)}
         />
       )}
 

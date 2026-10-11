@@ -90,11 +90,6 @@ export const CrawlerHeader: React.FC<Props> = ({
             </div>
             <span className="text-slate-700" aria-hidden="true">|</span>
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-400">Confirmed Ausbildung:</span>
-              <span className="font-semibold text-amber-300">{stats.confirmedAusbildung}</span>
-            </div>
-            <span className="text-slate-700" aria-hidden="true">|</span>
-            <div className="flex items-center gap-1.5">
               <span className="text-slate-400">Progress:</span>
               <span className="font-semibold text-sky-400">
                 {stats.totalCitiesQueued > 0 
