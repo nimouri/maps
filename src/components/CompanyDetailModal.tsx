@@ -102,7 +102,7 @@ ${candidateEmail || '[Ihre E-Mail-Adresse]'}`;
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
               <MapPin className="w-3.5 h-3.5 text-amber-400" />
-              <span>{company.address}</span>
+              <span>{company.address || '—'}</span>
               <span aria-hidden="true">·</span>
               <span className="text-slate-300 font-medium">{company.city}</span>
             </div>

@@ -98,8 +98,13 @@ export async function searchOpenStreetMap(params: {
     const phone = extra.phone || extra['contact:phone'] || undefined;
     const directEmail = extra.email || extra['contact:email'] || undefined;
 
-    const lat = parseFloat(item.lat);
-    const lng = parseFloat(item.lon);
+    const rawLat = parseFloat(item.lat);
+    const rawLng = parseFloat(item.lon);
+    if (isNaN(rawLat) || isNaN(rawLng)) {
+      continue;
+    }
+    const lat = rawLat;
+    const lng = rawLng;
 
     // Direct OSM link and Google Maps search link
     const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
@@ -110,14 +115,14 @@ export async function searchOpenStreetMap(params: {
       name: item.name || item.display_name.split(',')[0],
       city: itemCity,
       state: addr.state || countryName,
-      address: formattedAddress || `${itemCity}, ${countryName}`,
+      address: formattedAddress || undefined,
       country: country,
       website: website,
       phone: phone,
       rating: undefined,
       reviewsCount: undefined,
-      lat: isNaN(lat) ? 51.1657 : lat,
-      lng: isNaN(lng) ? 10.4515 : lng,
+      lat: lat,
+      lng: lng,
       mapsUrl: mapsUrl,
       placeTypes: [item.class, item.type].filter(Boolean),
       businessStatus: 'OPERATIONAL',

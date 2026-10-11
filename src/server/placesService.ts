@@ -206,9 +206,9 @@ export async function searchPlacesText(params: PlacesSearchParams): Promise<{
     }
     seenPlaceIds.add(placeId);
 
-    // Extract valid coordinates or fallback
-    const lat = place.location?.latitude ?? (biasCoords?.lat || 51.1657);
-    const lng = place.location?.longitude ?? (biasCoords?.lng || 10.4515);
+    // Extract valid coordinates without synthetic fallback
+    const lat = typeof place.location?.latitude === 'number' ? place.location.latitude : biasCoords?.lat;
+    const lng = typeof place.location?.longitude === 'number' ? place.location.longitude : biasCoords?.lng;
 
     // Extract verified Google Maps URI; if missing, generate canonical place ID URI
     const mapsUrl = place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`;
@@ -219,7 +219,7 @@ export async function searchPlacesText(params: PlacesSearchParams): Promise<{
       name: place.displayName?.text || 'Business Name Not Listed',
       city: cleanCity,
       state: countryName,
-      address: place.formattedAddress || `${cleanCity}, ${countryName}`,
+      address: place.formattedAddress || undefined,
       country: country,
       website: place.websiteUri || undefined,
       phone: place.nationalPhoneNumber || place.internationalPhoneNumber || undefined,

@@ -65,8 +65,8 @@ export interface ScrapedCompany {
   phone?: string;
   rating?: number;
   reviewsCount?: number;
-  lat: number;
-  lng: number;
+  lat?: number;
+  lng?: number;
   mapsUrl: string; // Real Maps URL
   placeTypes: string[];
   businessStatus?: string;

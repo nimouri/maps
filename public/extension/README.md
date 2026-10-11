@@ -4,6 +4,24 @@ This extension enables real-time scraping of Google Maps search feeds directly i
 
 ---
 
+## 🔒 Security & Origin Configuration
+
+By design, `manifest.json` locks down execution origins to protect against unauthorized access.
+Only your local development origin and your designated production domain are permitted.
+
+In `manifest.json`:
+```json
+"matches": [
+  "http://localhost:3000/*",
+  "https://YOUR-DOMAIN-HERE/*"
+]
+```
+
+**Before deploying to production:**
+Replace `"https://YOUR-DOMAIN-HERE/*"` with your actual deployed app origin (e.g. `https://my-mapcareer-app.run.app/*`).
+
+---
+
 ## 🚀 How to Install (Takes 30 Seconds)
 
 1. **Open Google Chrome** (or any Chromium browser: Brave, Edge, Opera).
@@ -19,9 +37,14 @@ This extension enables real-time scraping of Google Maps search feeds directly i
 ## ⚡ How It Operates
 
 1. When you search for businesses in the MapCareer web app:
-   - The web app sends a message to the extension bridge (`content-bridge.js`).
-   - The extension opens a temporary tab to `https://www.google.com/maps/search/...`
-   - It automatically accepts cookie consents, auto-scrolls the results feed (`div[role="feed"]`), and extracts business names, physical addresses, websites, phone numbers, ratings, review counts, and GPS coordinates parsed from the live URL.
-   - It closes the temporary tab and returns the real data back to your table and interactive map.
-2. **Zero Paid API Keys**: No Google Cloud billing or paid Places API required.
-3. **If Extension is not loaded**: The app seamlessly falls back to the free **OpenStreetMap (Overpass / Nominatim)** engine, with clear attribution.
+   - The web app sends a message to the extension bridge (`content-bridge.js`) via verified `window.postMessage`.
+   - The extension opens a temporary popup window (`chrome.windows.create`, width: 900, height: 700) to `https://www.google.com/maps/search/...` (popups prevent background tab throttling in Chromium).
+   - `content-maps.js` dismisses cookie dialogs, auto-scrolls the feed (`div[role="feed"]`), extracts real business data, parses coordinates from `/!3d...` data strings, and captures genuine Google Place IDs (`!1s0x...:0x...`).
+   - The popup window automatically closes once scraping completes or upon timeout (timeout scales automatically with `maxResults`).
+   - Real, deduplicated business records stream back to the UI.
+2. **Zero Synthetic Data Guarantee**:
+   - Missing coordinates remain `undefined` (never replaced with center coordinates).
+   - Missing addresses remain empty (shown as `—` in the UI, never `'Address on Google Maps'`).
+   - No `Date.now()` random IDs; only provider-supplied IDs.
+3. **OpenStreetMap Fallback**:
+   - If the extension is not active or you prefer server-side search, the built-in OpenStreetMap Overpass/Nominatim engine performs 100% free search with zero keys required.

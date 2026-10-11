@@ -10,11 +10,13 @@
       type: 'MAPCAREER_EXTENSION_READY',
       version: '1.0.0',
       timestamp: Date.now()
-    }, '*');
+    }, window.location.origin);
   }
 
   // Listen to messages from the MapCareer frontend
   window.addEventListener('message', function(event) {
+    // Strictly ignore window.postMessage events where event.source !== window
+    if (event.source !== window) return;
     if (!event.data || typeof event.data !== 'object') return;
 
     // Heartbeat / ping check
@@ -23,7 +25,7 @@
         type: 'MAPCAREER_PONG',
         installed: true,
         version: '1.0.0'
-      }, '*');
+      }, window.location.origin);
       return;
     }
 
@@ -44,7 +46,7 @@
             requestId,
             success: false,
             error: chrome.runtime.lastError.message || 'Extension runtime error'
-          }, '*');
+          }, window.location.origin);
           return;
         }
 
@@ -55,7 +57,7 @@
           companies: response?.companies || [],
           error: response?.error || null,
           source: 'google_maps_extension'
-        }, '*');
+        }, window.location.origin);
       });
     }
   });

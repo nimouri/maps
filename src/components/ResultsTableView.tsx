@@ -370,7 +370,7 @@ export const ResultsTableView: React.FC<Props> = ({
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-400 flex-wrap">
                           <span className="text-slate-200 font-medium">{company.city}</span>
                           <span aria-hidden="true">·</span>
-                          <span>{company.address}</span>
+                          <span>{company.address || '—'}</span>
                         </div>
 
                         {/* Provider Place ID Tag */}

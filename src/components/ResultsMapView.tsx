@@ -85,6 +85,10 @@ export const ResultsMapView: React.FC<Props> = ({
     const seenCoordinates: Record<string, number> = {};
 
     companies.forEach((comp) => {
+      if (typeof comp.lat !== 'number' || typeof comp.lng !== 'number' || isNaN(comp.lat) || isNaN(comp.lng)) {
+        return; // Ignore results without verified coordinates
+      }
+
       let lat = comp.lat;
       let lng = comp.lng;
 
