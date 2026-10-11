@@ -14,9 +14,30 @@ import { ResultsTableView } from './components/ResultsTableView';
 import { ResultsMapView } from './components/ResultsMapView';
 import { CompanyDetailModal } from './components/CompanyDetailModal';
 import { ColdOutreachModal } from './components/ColdOutreachModal';
+import { ExtensionSetupModal } from './components/ExtensionSetupModal';
 import { AlertCircle, ShieldCheck } from 'lucide-react';
 
 export default function App() {
+  // Extension Bridge Detection
+  const [isExtensionDetected, setIsExtensionDetected] = useState(false);
+  const [showExtensionModal, setShowExtensionModal] = useState(false);
+
+  useEffect(() => {
+    const handleExtensionMsg = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'MAPCAREER_EXTENSION_READY' || event.data.type === 'MAPCAREER_PONG') {
+        setIsExtensionDetected(true);
+      }
+    };
+
+    window.addEventListener('message', handleExtensionMsg);
+    window.postMessage({ type: 'MAPCAREER_PING' }, '*');
+
+    return () => {
+      window.removeEventListener('message', handleExtensionMsg);
+    };
+  }, []);
+
   // Initial Filters
   const [filters, setFilters] = useState<ScrapeFilters>({
     country: 'DE',
@@ -24,6 +45,7 @@ export default function App() {
     selectedCities: ['München', 'Berlin'],
     jobQuery: 'Pflegeheim',
     jobType: 'ausbildung',
+    searchEngine: 'auto',
     mustHaveWebsite: false,
     mustHaveEmail: false,
     confirmedAusbildungOnly: false,
@@ -248,7 +270,8 @@ export default function App() {
             city: cityName,
             query: filters.jobQuery,
             country: filters.country,
-            pageSize: filters.maxResultsPerCity
+            pageSize: filters.maxResultsPerCity,
+            engine: filters.searchEngine || 'auto'
           })
         });
 
@@ -256,7 +279,7 @@ export default function App() {
           const errData = await response.json();
           const errorMsg = errData.error || `HTTP ${response.status} from server`;
           setApiError({ message: errorMsg, code: errData.code });
-          addLog('error', 'places_search', cityName, `Google Places API Error: ${errorMsg}`);
+          addLog('error', 'places_search', cityName, `Search Error: ${errorMsg}`);
           // Do NOT fake results! Proceed to next city or break
           continue;
         }
@@ -268,7 +291,7 @@ export default function App() {
           'success',
           'places_search',
           cityName,
-          `Received ${cityPlaces.length} real businesses with Place IDs from Google Places API (New)`
+          `Received ${cityPlaces.length} real businesses from ${data.attribution || 'Maps Provider'}`
         );
 
         // Deduplicate and append to state
@@ -518,6 +541,8 @@ export default function App() {
         activeView={activeView}
         setActiveView={setActiveView}
         totalCompanies={companies.length}
+        isExtensionDetected={isExtensionDetected}
+        onOpenExtensionModal={() => setShowExtensionModal(true)}
       />
 
       {/* Main Container */}
@@ -635,14 +660,21 @@ export default function App() {
         />
       )}
 
+      {/* Modal: Live Extension Bridge Setup */}
+      <ExtensionSetupModal
+        isOpen={showExtensionModal}
+        onClose={() => setShowExtensionModal(false)}
+        isExtensionDetected={isExtensionDetected}
+      />
+
       {/* Attribution Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 space-y-1">
           <p>
-            MapCareer Discovery · Powered by Google Maps Platform (Places API New)
+            MapCareer Discovery · Google Maps Platform & OpenStreetMap Free Overpass Engine
           </p>
           <p className="text-[11px] text-slate-600">
-            Attribution: Google Maps · All business listings require provider Place IDs. Missing fields are explicitly marked as "Not verified".
+            Real business discovery · All listings backed by genuine provider IDs · Zero synthetic data
           </p>
         </div>
       </footer>

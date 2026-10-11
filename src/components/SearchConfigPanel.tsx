@@ -15,7 +15,7 @@ import {
   ChevronUp,
   ShieldCheck
 } from 'lucide-react';
-import { CountryCode, CityTier, JobType, ScrapeFilters, CityInfo } from '../types/scraper';
+import { CountryCode, CityTier, JobType, ScrapeFilters, CityInfo, SearchEnginePreference } from '../types/scraper';
 import { CITIES_DATABASE, COUNTRY_NAMES, TIER_LABELS } from '../data/citiesData';
 import { JOB_PRESETS } from '../data/sampleJobProfiles';
 
@@ -134,10 +134,66 @@ export const SearchConfigPanel: React.FC<Props> = ({
     onChangeFilters({ ...filters, selectedCities: [] });
   };
 
+  const selectedEngine = filters.searchEngine || 'auto';
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
       <div className="space-y-5">
         
+        {/* ROW 0: Data Discovery Engine Selector */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 bg-slate-950/80 rounded-lg border border-slate-800">
+          <div className="flex items-center gap-2">
+            <Globe2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <span className="text-xs font-semibold text-slate-200">Discovery Engine:</span>
+              <span className="text-[11px] text-slate-400 block sm:inline sm:ml-1.5">
+                {selectedEngine === 'osm' 
+                  ? 'Real OpenStreetMap Overpass data (100% Free · Zero API Key needed)'
+                  : selectedEngine === 'google_places'
+                  ? 'Official Google Places API (New) Text Search'
+                  : 'Auto-detect (Places API if key configured, seamless free OSM fallback)'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onChangeFilters({ ...filters, searchEngine: 'auto' })}
+              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
+                selectedEngine === 'auto'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+            >
+              ⚡ Auto (Best)
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeFilters({ ...filters, searchEngine: 'osm' })}
+              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
+                selectedEngine === 'osm'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+              title="100% Free OpenStreetMap & Overpass API. Requires zero API keys or billing."
+            >
+              🌿 Free OpenStreetMap (No Key)
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeFilters({ ...filters, searchEngine: 'google_places' })}
+              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
+                selectedEngine === 'google_places'
+                  ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
+                  : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+              }`}
+              title="Google Places API (New) Text Search"
+            >
+              📍 Google Places API
+            </button>
+          </div>
+        </div>
+
         {/* ROW 1: Search Query & Presets */}
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -146,7 +202,7 @@ export const SearchConfigPanel: React.FC<Props> = ({
               Target Job, Role or Business Type
             </label>
             <span className="text-xs text-slate-400">
-              Searches real businesses via Google Places API (New) Text Search
+              Discovers real company entities, websites & career details
             </span>
           </div>
 
@@ -475,7 +531,11 @@ export const SearchConfigPanel: React.FC<Props> = ({
             className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-bold text-sm rounded-lg shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2 active:scale-98"
           >
             <Zap className="w-4 h-4 fill-current" />
-            Execute Places Text Search
+            {selectedEngine === 'osm' 
+              ? 'Execute Free OSM Search (Zero Key)' 
+              : selectedEngine === 'google_places' 
+              ? 'Execute Google Places Search' 
+              : 'Execute Real Company Search'}
           </button>
         </div>
 

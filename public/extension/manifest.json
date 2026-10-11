@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "MapCareer Google Maps Bridge",
+  "version": "1.0.0",
+  "description": "Live Google Maps scraper bridge for MapCareer. Discovers real businesses with zero paid APIs.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://www.google.com/maps/*",
+    "*://maps.google.com/*",
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.run.app/*",
+        "https://*.aistudio.google.com/*",
+        "<all_urls>"
+      ],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://www.google.com/maps/*",
+        "*://maps.google.com/*"
+      ],
+      "js": ["content-maps.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -26,6 +26,8 @@ interface Props {
   activeView: 'table' | 'map' | 'crawler';
   setActiveView: (view: 'table' | 'map' | 'crawler') => void;
   totalCompanies: number;
+  isExtensionDetected: boolean;
+  onOpenExtensionModal: () => void;
 }
 
 export const CrawlerHeader: React.FC<Props> = ({
@@ -38,7 +40,9 @@ export const CrawlerHeader: React.FC<Props> = ({
   onExportCsv,
   activeView,
   setActiveView,
-  totalCompanies
+  totalCompanies,
+  isExtensionDetected,
+  onOpenExtensionModal
 }) => {
   return (
     <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-40">
@@ -53,13 +57,22 @@ export const CrawlerHeader: React.FC<Props> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold text-white tracking-tight">MapCareer Discovery</h1>
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={onOpenExtensionModal}
+                  className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border flex items-center gap-1 transition-colors ${
+                    isExtensionDetected
+                      ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20 hover:bg-emerald-400/20'
+                      : 'text-amber-400 bg-amber-400/10 border-amber-400/20 hover:bg-amber-400/20'
+                  }`}
+                  title="Click to view Chrome Extension Bridge status & setup"
+                >
                   <ShieldCheck className="w-3 h-3" />
-                  Google Places API (New)
-                </span>
+                  <span>{isExtensionDetected ? 'Live Google Maps Bridge' : 'Free OpenStreetMap Engine'}</span>
+                </button>
               </div>
               <p className="text-xs text-slate-400">
-                Verified German & Austrian Business Discovery & Career Intelligence
+                Live Google Maps & OpenStreetMap business discovery · No paid API keys required
               </p>
             </div>
           </div>

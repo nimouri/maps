@@ -1,4 +1,5 @@
 import { AusbildungVerificationStatus, ConfirmedJobListing } from '../types/scraper';
+import { safeFetch } from './ssrfGuard';
 
 export interface JobVerificationResult {
   status: AusbildungVerificationStatus;
@@ -22,6 +23,42 @@ function sanitizeSnippet(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, 300);
 }
 
+/**
+ * Extracts links matching career or job keywords from HTML
+ */
+function extractCareerLinks(html: string, baseUrl: string): string[] {
+  const linkPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+  const discoveredUrls = new Set<string>();
+  const keywords = ['karriere', 'jobs', 'ausbildung', 'stellen', 'career', 'stellenangebote', 'arbeiten', 'azubi'];
+
+  let match: RegExpExecArray | null;
+  while ((match = linkPattern.exec(html)) !== null) {
+    const href = match[1].trim();
+    const anchorText = match[2].toLowerCase();
+
+    if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) {
+      continue;
+    }
+
+    try {
+      const resolved = new URL(href, baseUrl);
+      const isSameHost = resolved.hostname === new URL(baseUrl).hostname;
+      if (!isSameHost) continue;
+
+      const pathAndText = (resolved.pathname + ' ' + anchorText).toLowerCase();
+      const isRelevant = keywords.some(kw => pathAndText.includes(kw));
+
+      if (isRelevant) {
+        discoveredUrls.add(resolved.href);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return Array.from(discoveredUrls);
+}
+
 export async function verifyCompanyJobs(
   websiteUrl?: string,
   targetQuery?: string,
@@ -34,7 +71,7 @@ export async function verifyCompanyJobs(
       status: 'unverified',
       listings: [],
       verifiedAt: timestamp,
-      notes: 'No official website available in Google Places record to verify vacancies.'
+      notes: 'No official website available in business record to verify vacancies.'
     };
   }
 
@@ -47,51 +84,51 @@ export async function verifyCompanyJobs(
       status: 'unverified',
       listings: [],
       verifiedAt: timestamp,
-      notes: 'Website URL provided in Google Places record is invalid.'
+      notes: 'Website URL provided in business record is invalid.'
     };
   }
 
-  const candidateCareerUrls = [
+  // 1. First safely fetch homepage to harvest actual navigation links
+  const homeFetch = await safeFetch(websiteUrl, { timeoutMs: 5000 });
+  const navigationLinks = homeFetch && homeFetch.ok ? extractCareerLinks(homeFetch.text, homeFetch.finalUrl) : [];
+
+  // Fallback candidate career paths if navigation links were sparse
+  const fallbackCareerUrls = [
     `${origin}/karriere`,
     `${origin}/jobs`,
     `${origin}/ausbildung`,
-    `${origin}/stellenangebote`,
-    websiteUrl
+    `${origin}/stellenangebote`
   ];
 
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (compatible; MapCareerJobVerifier/1.0; +https://mapcareer.app/bot)'
-  };
+  // Combine discovered links with common fallbacks, deduplicated
+  const candidateCareerUrls = Array.from(new Set([...navigationLinks, ...fallbackCareerUrls, websiteUrl]));
 
   const confirmedListings: ConfirmedJobListing[] = [];
   let detectedCareerPortalUrl: string | undefined;
 
-  for (const careerUrl of candidateCareerUrls) {
+  // Probe candidates using SSRF-guarded safeFetch
+  for (const careerUrl of candidateCareerUrls.slice(0, 6)) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      let pageHtml = '';
+      let pageFinalUrl = careerUrl;
 
-      const res = await fetch(careerUrl, {
-        headers,
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-      clearTimeout(timeoutId);
+      if (homeFetch && homeFetch.finalUrl === careerUrl) {
+        pageHtml = homeFetch.text;
+      } else {
+        const fetchRes = await safeFetch(careerUrl, { timeoutMs: 5000 });
+        if (!fetchRes || !fetchRes.ok) continue;
+        pageHtml = fetchRes.text;
+        pageFinalUrl = fetchRes.finalUrl;
+      }
 
-      if (!res.ok) continue;
-
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('text/html')) continue;
-
-      const html = await res.text();
-      detectedCareerPortalUrl = careerUrl;
+      detectedCareerPortalUrl = pageFinalUrl;
 
       // Extract job titles from headings and links
       // Common German patterns: e.g. "Ausbildung zur Pflegefachkraft (m/w/d)"
       const tagPattern = /<(?:h[1-4]|a|span|li)[^>]*>([^<]{10,120})<\/(?:h[1-4]|a|span|li)>/gi;
       let match: RegExpExecArray | null;
 
-      while ((match = tagPattern.exec(html)) !== null) {
+      while ((match = tagPattern.exec(pageHtml)) !== null) {
         const text = match[1].replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').trim();
         const lower = text.toLowerCase();
 
@@ -110,7 +147,7 @@ export async function verifyCompanyJobs(
             
             // Check for published deadline in nearby text
             let deadline: string | undefined;
-            const deadlineMatch = html.match(/(?:bewerbungsfrist|ende der bewerbungsfrist|frist|start):\s*([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{4})/i);
+            const deadlineMatch = pageHtml.match(/(?:bewerbungsfrist|ende der bewerbungsfrist|frist|start):\s*([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{4})/i);
             if (deadlineMatch) {
               deadline = deadlineMatch[1];
             }
@@ -118,7 +155,7 @@ export async function verifyCompanyJobs(
             confirmedListings.push({
               title: text,
               jobType: hasAusbildung ? 'Ausbildung' : 'Vollzeit',
-              sourceUrl: careerUrl,
+              sourceUrl: pageFinalUrl,
               verifiedAt: timestamp,
               deadline,
               snippet: sanitizeSnippet(text)
@@ -145,6 +182,6 @@ export async function verifyCompanyJobs(
     verifiedAt: timestamp,
     notes: hasConfirmedAusbildung
       ? `Confirmed ${confirmedListings.length} actual job/Ausbildung vacancies with attributable source URL on official portal.`
-      : 'Google Maps presence confirmed, but no active verified Ausbildung listing was detected on official public pages.'
+      : 'Business presence confirmed on map, but no active verified Ausbildung listing was detected on public career pages.'
   };
 }

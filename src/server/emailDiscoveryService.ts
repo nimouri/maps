@@ -1,4 +1,5 @@
 import { EmailDiscoveryStatus } from '../types/scraper';
+import { safeFetch } from './ssrfGuard';
 
 export interface EmailDiscoveryResult {
   status: EmailDiscoveryStatus;
@@ -50,17 +51,50 @@ function isValidEmail(candidate: string): boolean {
 }
 
 function extractEmailsFromHtml(html: string): string[] {
-  // Matches standard emails and mailto: links
   const mailtoMatches = Array.from(html.matchAll(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi))
     .map(m => m[1].toLowerCase());
 
   const textMatches = Array.from(html.matchAll(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/gi))
     .map(m => m[1].toLowerCase());
 
-  const combined = Array.from(new Set([...mailtoMatches, ...textMatches]))
-    .filter(isValidEmail);
+  return Array.from(new Set([...mailtoMatches, ...textMatches])).filter(isValidEmail);
+}
 
-  return combined;
+/**
+ * Parses internal links from page HTML matching career, contact, or legal keywords.
+ */
+function extractRelevantLinks(html: string, baseUrl: string): string[] {
+  const linkPattern = /<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi;
+  const discoveredUrls = new Set<string>();
+  const keywords = ['karriere', 'jobs', 'ausbildung', 'kontakt', 'contact', 'impressum', 'stellen'];
+
+  let match: RegExpExecArray | null;
+  while ((match = linkPattern.exec(html)) !== null) {
+    const href = match[1].trim();
+    const anchorText = match[2].toLowerCase();
+
+    // Skip mailto, tel, javascript, fragments
+    if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('javascript:')) {
+      continue;
+    }
+
+    try {
+      const resolved = new URL(href, baseUrl);
+      const isSameHost = resolved.hostname === new URL(baseUrl).hostname;
+      if (!isSameHost) continue; // Only follow internal links
+
+      const pathAndText = (resolved.pathname + ' ' + anchorText).toLowerCase();
+      const isRelevant = keywords.some(kw => pathAndText.includes(kw));
+
+      if (isRelevant) {
+        discoveredUrls.add(resolved.href);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return Array.from(discoveredUrls);
 }
 
 export async function discoverCompanyEmail(
@@ -74,82 +108,68 @@ export async function discoverCompanyEmail(
       status: 'no_email_found',
       discoveredAt: timestamp,
       allEmails: [],
-      notes: 'No official website provided in Google Places record.'
+      notes: 'No official website provided in business record.'
     };
   }
 
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(websiteUrl);
-  } catch {
+  // 1. Initial homepage safe fetch (with SSRF protection)
+  const homeFetch = await safeFetch(websiteUrl, { timeoutMs });
+  if (!homeFetch || !homeFetch.ok) {
     return {
       status: 'no_email_found',
       discoveredAt: timestamp,
       allEmails: [],
-      notes: 'Website URL provided in Google Places record is invalid.'
+      notes: 'Website could not be reached safely or was blocked by SSRF filter.'
     };
   }
 
-  const origin = parsedUrl.origin;
-  const urlsToProbe = [
-    parsedUrl.href,
-    `${origin}/impressum`,
-    `${origin}/kontakt`,
-    `${origin}/karriere`,
-    `${origin}/jobs`
-  ];
-
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (compatible; MapCareerJobVerifier/1.0; +https://mapcareer.app/bot)'
-  };
-
   const discoveredMap = new Map<string, { email: string; sourceUrl: string; isRecruitment: boolean }>();
 
-  // Probe pages sequentially with tight timeout
-  for (const targetUrl of urlsToProbe.slice(0, 3)) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // Extract emails from homepage
+  const homeEmails = extractEmailsFromHtml(homeFetch.text);
+  for (const email of homeEmails) {
+    const localPart = email.split('@')[0].toLowerCase();
+    const isRecruitment = RECRUITMENT_PREFIXES.some(prefix => localPart.startsWith(prefix));
+    discoveredMap.set(email, { email, sourceUrl: homeFetch.finalUrl, isRecruitment });
+  }
 
-      const res = await fetch(targetUrl, {
-        headers,
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-      clearTimeout(timeoutId);
+  // 2. Extract actual navigation links from the homepage (Fix: link-following crawler)
+  const navigationLinks = extractRelevantLinks(homeFetch.text, homeFetch.finalUrl);
 
-      if (!res.ok) continue;
+  // Fallback candidate paths if navigation links were sparse
+  const origin = new URL(homeFetch.finalUrl).origin;
+  const fallbackPaths = [`${origin}/impressum`, `${origin}/kontakt`, `${origin}/karriere`, `${origin}/jobs`];
+  
+  // Combine discovered real links with common fallback paths, deduplicated
+  const urlsToProbe = Array.from(new Set([...navigationLinks, ...fallbackPaths]));
 
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('text/html')) continue;
+  // Probe up to 6 discovered relevant links (Fix: no more slice(0, 3) cutoff)
+  for (const probeUrl of urlsToProbe.slice(0, 6)) {
+    if (probeUrl === homeFetch.finalUrl) continue;
 
-      const html = await res.text();
-      const emails = extractEmailsFromHtml(html);
+    const probeResult = await safeFetch(probeUrl, { timeoutMs: 4000 });
+    if (!probeResult || !probeResult.ok) continue;
 
-      const isCareerPage = /karriere|jobs|ausbildung|career/i.test(targetUrl);
+    const pageEmails = extractEmailsFromHtml(probeResult.text);
+    const isCareerPage = /karriere|jobs|ausbildung|career/i.test(probeResult.finalUrl);
 
-      for (const email of emails) {
-        const localPart = email.split('@')[0].toLowerCase();
-        const isRecruitPrefix = RECRUITMENT_PREFIXES.some(prefix => localPart.startsWith(prefix));
-        const isRecruitment = isRecruitPrefix || isCareerPage;
+    for (const email of pageEmails) {
+      const localPart = email.split('@')[0].toLowerCase();
+      const isRecruitPrefix = RECRUITMENT_PREFIXES.some(prefix => localPart.startsWith(prefix));
+      const isRecruitment = isRecruitPrefix || isCareerPage;
 
-        if (!discoveredMap.has(email) || isRecruitment) {
-          discoveredMap.set(email, {
-            email,
-            sourceUrl: targetUrl,
-            isRecruitment
-          });
-        }
+      if (!discoveredMap.has(email) || isRecruitment) {
+        discoveredMap.set(email, {
+          email,
+          sourceUrl: probeResult.finalUrl,
+          isRecruitment
+        });
       }
-
-      // If we found a verified recruitment email, we can stop early
-      const foundRecruit = Array.from(discoveredMap.values()).some(e => e.isRecruitment);
-      if (foundRecruit) break;
-
-    } catch {
-      // Ignore network errors on optional probes
-      continue;
     }
+
+    // If a verified recruitment email is found on a career page, stop early to be efficient
+    const hasRecruitment = Array.from(discoveredMap.values()).some(e => e.isRecruitment);
+    if (hasRecruitment) break;
   }
 
   if (discoveredMap.size === 0) {
@@ -162,7 +182,7 @@ export async function discoverCompanyEmail(
   }
 
   const entries = Array.from(discoveredMap.values());
-  const targetHost = parsedUrl.hostname.replace(/^www\./, '').toLowerCase();
+  const targetHost = new URL(websiteUrl).hostname.replace(/^www\./, '').toLowerCase();
 
   // Prioritize domain-matching recruitment emails, then recruitment emails, then domain-matching general emails
   const sorted = entries.sort((a, b) => {

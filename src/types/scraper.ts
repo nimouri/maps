@@ -35,12 +35,15 @@ export interface CityInfo {
   lng: number;
 }
 
+export type SearchEnginePreference = 'auto' | 'osm' | 'google_places' | 'extension';
+
 export interface ScrapeFilters {
   country: CountryCode;
   selectedTiers: CityTier[];
   selectedCities: string[];
   jobQuery: string;
   jobType: JobType;
+  searchEngine?: SearchEnginePreference;
   mustHaveWebsite: boolean;
   mustHaveEmail: boolean;
   confirmedAusbildungOnly: boolean;
@@ -51,7 +54,7 @@ export interface ScrapeFilters {
 }
 
 export interface ScrapedCompany {
-  id: string; // Google Place ID
+  id: string; // Real Provider Place ID / OSM ID
   placeId: string;
   name: string;
   city: string;
@@ -64,10 +67,10 @@ export interface ScrapedCompany {
   reviewsCount?: number;
   lat: number;
   lng: number;
-  mapsUrl: string; // Real Google Maps URL provided by Google Places API
+  mapsUrl: string; // Real Maps URL
   placeTypes: string[];
   businessStatus?: string;
-  providerAttribution: 'Google Places API (New)';
+  providerAttribution: string;
   discoveredAt: string;
 
   // Real Email Discovery Pipeline
