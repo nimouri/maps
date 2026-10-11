@@ -1,0 +1,6 @@
+{
+  "name": "MapCareer Scraper - Google Maps Job & Ausbildung Finder",
+  "description": "Automated Google Maps and company career crawler to discover hiring employers, scrape verified career emails, and find job & Ausbildung opportunities across German and Austrian cities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
